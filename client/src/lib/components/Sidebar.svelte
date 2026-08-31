@@ -5,6 +5,12 @@
   export let onOpenAi = () => {};
 
   $: currentPath = $page.url.pathname;
+
+  function getLevelShortTag(role, level) {
+    if (role === 'admin') return 'L3 ADMIN';
+    if (role === 'supervisor') return 'L2 SUPERVISOR';
+    return 'L1 INVESTIGATOR';
+  }
 </script>
 
 <aside class="workstation-sidebar">
@@ -46,6 +52,24 @@
       <span>Investigation Cases</span>
     </a>
 
+    <div class="nav-section-label">CREDENTIALS & IDENTITY</div>
+
+    <a href="/security" class="nav-item" class:active={currentPath === '/security'}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      <span>Security & Credentials</span>
+    </a>
+
+    <a href="/verify-identity" class="nav-item" class:active={currentPath === '/verify-identity'}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="16" x2="12" y2="12"/>
+        <line x1="12" y1="8" x2="12.01" y2="8"/>
+      </svg>
+      <span>Verify Identity</span>
+    </a>
+
     <div class="nav-section-label">INTELLIGENCE & AUDIT</div>
 
     <button type="button" class="nav-item ai-nav-btn" on:click={onOpenAi}>
@@ -54,7 +78,7 @@
         <path d="M12 8v4"/>
         <path d="M12 16h.01"/>
       </svg>
-      <span>AI Cyber Investigator</span>
+      <span>AI Investigator</span>
       <span class="nav-badge-cyan">AI</span>
     </button>
 
@@ -67,13 +91,6 @@
         <polyline points="10 9 9 9 8 9"/>
       </svg>
       <span>Audit Explorer</span>
-    </a>
-
-    <a href="/verify-identity" class="nav-item" class:active={currentPath === '/verify-identity'}>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-      </svg>
-      <span>Verify Identity</span>
     </a>
 
     <!-- Admin Section -->
@@ -98,6 +115,13 @@
         </svg>
         <span>Personnel Directory</span>
       </a>
+
+      <a href="/admin/security-events" class="nav-item" class:active={currentPath === '/admin/security-events'}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+        </svg>
+        <span>Security SIEM Monitor</span>
+      </a>
     {/if}
   </nav>
 
@@ -112,13 +136,14 @@
           <span class="user-name">{$auth.user?.name}</span>
           <div class="user-status-row">
             <span class="status-indicator-dot"></span>
-            <span class="role-badge">{$auth.user?.role?.toUpperCase()}</span>
+            <span class="role-badge font-mono">{getLevelShortTag($auth.user?.role, $auth.user?.securityLevel)}</span>
           </div>
         </div>
       </div>
-      <button class="btn btn-secondary btn-sm logout-btn" on:click={auth.logout}>
-        Sign Out
-      </button>
+      <div class="footer-actions">
+        <a href="/security" class="btn btn-secondary btn-xs" style="flex: 1; text-align: center;">Security</a>
+        <button class="btn btn-secondary btn-xs logout-btn" on:click={auth.logout}>Sign Out</button>
+      </div>
     {:else}
       <a href="/login" class="btn btn-primary btn-sm login-btn">
         Access Workstation
@@ -194,7 +219,7 @@
   }
 
   .nav-section-label {
-    font-size: 0.625rem;
+    font-size: 0.5625rem;
     font-weight: 700;
     color: var(--text-muted);
     letter-spacing: 0.08em;
@@ -206,11 +231,11 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.6rem 0.75rem;
+    padding: 0.55rem 0.75rem;
     border-radius: 6px;
     color: var(--text-secondary);
     text-decoration: none;
-    font-size: 0.84rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     transition: all 0.15s ease;
     background: transparent;
@@ -254,7 +279,7 @@
     background-color: rgba(0, 0, 0, 0.2);
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.65rem;
   }
 
   .user-card {
@@ -307,13 +332,17 @@
   }
 
   .role-badge {
-    font-size: 0.625rem;
+    font-size: 0.5625rem;
     font-weight: 700;
     color: var(--text-secondary);
+    letter-spacing: 0.04em;
   }
 
-  .logout-btn, .login-btn {
-    width: 100%;
-    text-align: center;
+  .footer-actions {
+    display: flex;
+    gap: 0.5rem;
   }
+
+  .btn-xs { font-size: 0.6875rem; padding: 0.25rem 0.5rem; border-radius: 4px; }
+  .logout-btn, .login-btn { width: 100%; text-align: center; }
 </style>

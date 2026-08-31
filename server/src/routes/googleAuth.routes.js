@@ -21,7 +21,7 @@ router.get('/config', (req, res) => {
 
 router.post('/verify', async (req, res, next) => {
   try {
-    const { credential, email, name } = req.body;
+    const { credential, email, name, googleSubjectId } = req.body;
     const isConfigured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
     if (!isConfigured) {
@@ -41,14 +41,48 @@ router.post('/verify', async (req, res, next) => {
       });
     }
 
-    let user = await User.findOne({ email: email.toLowerCase().trim() });
+    const normalizedEmail = email.toLowerCase().trim();
+    let user = await User.findOne({ email: normalizedEmail });
+
     if (!user) {
+      // Create new Level 1 Investigator with Identity Verified (NEVER Supervisor or Admin)
       user = await User.create({
         name: name || 'Google Verified Investigator',
-        email: email.toLowerCase().trim(),
+        email: normalizedEmail,
         passwordHash: 'oauth_managed_account_no_password',
-        role: 'investigator',
-        status: 'active'
+        role: 'investigator', // Public identity verification produces investigator role only
+        status: 'active',
+        emailVerified: true,
+        identityVerified: true,
+        googleSubjectId: googleSubjectId || null,
+        supervisorStatus: 'none',
+        mfaEnabled: false
+      });
+
+      await logAudit({
+        actorId: user._id,
+        action: 'USER_REGISTER',
+        entityType: 'User',
+        entityId: user._id,
+        metadata: { authMethod: 'google_oidc', role: 'investigator', email: user.email },
+        ipAddress: req.ip || req.connection?.remoteAddress || 'unknown'
+      });
+    } else {
+      // Existing user: mark identity verified without changing their assigned role
+      user.identityVerified = true;
+      user.emailVerified = true;
+      if (googleSubjectId) user.googleSubjectId = googleSubjectId;
+      user.lastLoginAt = new Date();
+      await user.save();
+    }
+
+    if (user.status === 'suspended' || user.status === 'revoked') {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: `ACCOUNT_${user.status.toUpperCase()}`,
+          message: `Account is ${user.status}. Access denied.`
+        }
       });
     }
 
@@ -57,23 +91,26 @@ router.post('/verify', async (req, res, next) => {
 
     await logAudit({
       actorId: user._id,
-      action: 'GOOGLE_OAUTH_LOGIN',
+      action: 'IDENTITY_VERIFIED',
       entityType: 'User',
       entityId: user._id,
       metadata: { email: user.email, authMethod: 'google_oidc' },
       ipAddress
     });
 
+    await logAudit({
+      actorId: user._id,
+      action: 'LOGIN_SUCCESS',
+      entityType: 'Auth',
+      entityId: user._id,
+      metadata: { email: user.email, role: user.role, securityLevel: user.securityLevel },
+      ipAddress
+    });
+
     res.status(200).json({
       success: true,
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          status: user.status
-        },
+        user: user.toJSON(),
         tokens
       }
     });

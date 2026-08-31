@@ -7,8 +7,8 @@ import { Case } from '../src/models/Case.js';
 import { generateTokens } from '../src/middleware/auth.js';
 
 describe('Case-Level Access Authorization Suite', () => {
-  let invA, invB, supervisor, admin;
-  let tokenA, tokenB, supToken, admToken;
+  let invA, invB, assignedSupervisor, unrelatedSupervisor, admin;
+  let tokenA, tokenB, assignedSupToken, unrelatedSupToken, admToken;
   let caseA;
 
   beforeAll(async () => {
@@ -38,9 +38,17 @@ describe('Case-Level Access Authorization Suite', () => {
       status: 'active'
     });
 
-    supervisor = await User.create({
-      name: 'Supervisor Skinner',
+    assignedSupervisor = await User.create({
+      name: 'Supervisor Skinner (Assigned)',
       email: 'skinner@blackbox.local',
+      passwordHash: 'hash',
+      role: 'supervisor',
+      status: 'active'
+    });
+
+    unrelatedSupervisor = await User.create({
+      name: 'Supervisor Unrelated',
+      email: 'unrelated_sup@blackbox.local',
       passwordHash: 'hash',
       role: 'supervisor',
       status: 'active'
@@ -56,7 +64,8 @@ describe('Case-Level Access Authorization Suite', () => {
 
     tokenA = generateTokens(invA).accessToken;
     tokenB = generateTokens(invB).accessToken;
-    supToken = generateTokens(supervisor).accessToken;
+    assignedSupToken = generateTokens(assignedSupervisor).accessToken;
+    unrelatedSupToken = generateTokens(unrelatedSupervisor).accessToken;
     admToken = generateTokens(admin).accessToken;
 
     caseA = await Case.create({
@@ -64,7 +73,8 @@ describe('Case-Level Access Authorization Suite', () => {
       description: 'Restricted access case',
       status: 'active',
       createdBy: invA._id,
-      assignedInvestigators: [invA._id]
+      assignedInvestigators: [invA._id],
+      assignedSupervisor: assignedSupervisor._id
     });
   });
 
@@ -95,15 +105,25 @@ describe('Case-Level Access Authorization Suite', () => {
     expect(res.body.error.code).toBe('FORBIDDEN');
   });
 
-  it('Supervisor should have supervisory access to Case A', async () => {
+  it('Assigned Supervisor should have supervisory access to Case A', async () => {
     const res = await request(app)
       .get(`/api/v1/cases/${caseA._id}`)
-      .set('Authorization', `Bearer ${supToken}`);
+      .set('Authorization', `Bearer ${assignedSupToken}`);
 
     expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
   });
 
-  it('Admin should have full access to Case A', async () => {
+  it('Unrelated Supervisor should be denied access to Case A with 403', async () => {
+    const res = await request(app)
+      .get(`/api/v1/cases/${caseA._id}`)
+      .set('Authorization', `Bearer ${unrelatedSupToken}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('FORBIDDEN');
+  });
+
+  it('Admin should have full oversight access to Case A', async () => {
     const res = await request(app)
       .get(`/api/v1/cases/${caseA._id}`)
       .set('Authorization', `Bearer ${admToken}`);

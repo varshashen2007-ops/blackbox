@@ -44,7 +44,11 @@ async function seedDevData() {
       email: 'admin@blackbox.local',
       passwordHash,
       role: 'admin',
-      status: 'active'
+      status: 'active',
+      emailVerified: true,
+      identityVerified: true,
+      adminProvisioned: true,
+      mfaEnabled: false
     });
 
     const supervisor = await User.create({
@@ -52,7 +56,16 @@ async function seedDevData() {
       email: 'supervisor@blackbox.local',
       passwordHash,
       role: 'supervisor',
-      status: 'active'
+      status: 'active',
+      emailVerified: true,
+      identityVerified: true,
+      organization: 'Digital Forensics Oversight Board',
+      professionalEmail: 'supervisor@blackbox.local',
+      professionalEmailVerified: true,
+      supervisorStatus: 'approved',
+      supervisorApprovedAt: new Date(),
+      supervisorApprovedBy: admin._id,
+      mfaEnabled: false
     });
 
     const investigator = await User.create({
@@ -60,7 +73,12 @@ async function seedDevData() {
       email: 'investigator@blackbox.local',
       passwordHash,
       role: 'investigator',
-      status: 'active'
+      status: 'active',
+      emailVerified: true,
+      identityVerified: true,
+      organization: 'Cyber Crime Investigation Division',
+      supervisorStatus: 'none',
+      mfaEnabled: false
     });
 
     console.log('[Seed] Creating initial synthetic case (Draft)...');
@@ -86,9 +104,9 @@ async function seedDevData() {
 
     console.log('✅ Dev database successfully seeded with synthetic credentials:');
     console.log('--------------------------------------------------');
-    console.log('Admin:        admin@blackbox.local        / Password123!');
-    console.log('Supervisor:   supervisor@blackbox.local   / Password123!');
-    console.log('Investigator: investigator@blackbox.local / Password123!');
+    console.log('Admin (Level 3):        admin@blackbox.local        / Password123!');
+    console.log('Supervisor (Level 2):   supervisor@blackbox.local   / Password123!');
+    console.log('Investigator (Level 1): investigator@blackbox.local / Password123!');
     console.log('--------------------------------------------------');
 
     await mongoose.disconnect();

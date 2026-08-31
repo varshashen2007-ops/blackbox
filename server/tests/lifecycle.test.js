@@ -138,7 +138,8 @@ describe('Case Lifecycle Transition Engine Suite (Track A)', () => {
       title: 'Closing Case',
       description: 'Case ready for closure',
       status: 'under_review',
-      createdBy: investigator._id
+      createdBy: investigator._id,
+      assignedSupervisor: supervisor._id
     });
 
     // Investigator forbidden
@@ -186,6 +187,7 @@ describe('Case Lifecycle Transition Engine Suite (Track A)', () => {
       description: 'Closed case requiring reopening',
       status: 'closed',
       createdBy: investigator._id,
+      assignedSupervisor: supervisor._id,
       closedAt: new Date()
     });
 
@@ -209,7 +211,8 @@ describe('Case Lifecycle Transition Engine Suite (Track A)', () => {
       title: 'Draft Case Disallowed',
       description: 'Testing illegal jump from draft to closed',
       status: 'draft',
-      createdBy: investigator._id
+      createdBy: investigator._id,
+      assignedSupervisor: supervisor._id
     });
 
     // draft -> closed is illegal

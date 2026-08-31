@@ -26,6 +26,57 @@ export async function login(req, res, next) {
   }
 }
 
+export async function verifyMfaChallenge(req, res, next) {
+  try {
+    const ipAddress = req.ip || req.connection?.remoteAddress || 'unknown';
+    const result = await authService.verifyMfaLogin(req.body, ipAddress);
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function setupMfa(req, res, next) {
+  try {
+    const result = await authService.setupMfa(req.user);
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function confirmMfa(req, res, next) {
+  try {
+    const ipAddress = req.ip || req.connection?.remoteAddress || 'unknown';
+    const result = await authService.confirmMfa(req.user, req.body.code, ipAddress);
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function verifyEmail(req, res, next) {
+  try {
+    const ipAddress = req.ip || req.connection?.remoteAddress || 'unknown';
+    const updatedUser = await authService.verifyUserEmail(req.user, ipAddress);
+    res.status(200).json({
+      success: true,
+      data: { user: updatedUser }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function refresh(req, res, next) {
   try {
     const result = await authService.refreshToken(req.body.refreshToken);

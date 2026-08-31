@@ -21,6 +21,10 @@ const router = Router();
 // All case routes require authentication
 router.use(authenticate);
 
+// Assignee lookups for case assignment modal / dropdowns
+router.get('/assignees/supervisors', caseController.listEligibleSupervisors);
+router.get('/assignees/investigators', caseController.listEligibleInvestigators);
+
 // Sub-resource routers protected with case-level authorization
 router.use('/:caseId/evidence', requireCaseAccess, evidenceRoutes);
 router.use('/:caseId/hypotheses', requireCaseAccess, hypothesisRoutes);
@@ -41,7 +45,7 @@ router.get('/:id', requireCaseAccess, caseController.getCaseById);
 router.patch(
   '/:id',
   requireCaseAccess,
-  requireRole('investigator', 'supervisor'),
+  requireRole('investigator', 'supervisor', 'admin'),
   validate(updateCaseSchema),
   caseController.updateCase
 );

@@ -27,5 +27,7 @@ export const queryCasesSchema = z.object({
   status: z.enum(['draft', 'active', 'under_review', 'closed', 'archived']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   assigned: z.string().optional(),
-  search: z.string().optional()
+  search: z.string().optional(),
+  requiresReview: z.coerce.boolean().optional(),
+  filter: z.string().optional()
 });
