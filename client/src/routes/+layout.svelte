@@ -41,6 +41,7 @@
         <a href="/" class="nav-item">Overview</a>
         <a href="/cases" class="nav-item">Cases</a>
         {#if $auth.user?.role === 'admin'}
+          <a href="/admin" class="nav-item">Analytics</a>
           <a href="/admin/users" class="nav-item">User Admin</a>
         {/if}
       </nav>

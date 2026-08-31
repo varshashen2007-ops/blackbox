@@ -2,6 +2,7 @@ import { Evidence } from '../models/Evidence.js';
 import { Case } from '../models/Case.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logAudit } from '../middleware/audit.js';
+import { recomputeAllHypothesesForCase } from './confidenceScore.service.js';
 
 export async function createEvidence({
   caseId,
@@ -142,6 +143,8 @@ export async function verifyEvidence({ caseId, evidenceId, user, ipAddress = 'un
 
   await evidence.save();
 
+  await recomputeAllHypothesesForCase(caseId);
+
   await logAudit({
     actorId: user._id,
     action: 'EVIDENCE_VERIFIED',
@@ -182,6 +185,8 @@ export async function rejectEvidence({ caseId, evidenceId, rejectionReason, user
   });
 
   await evidence.save();
+
+  await recomputeAllHypothesesForCase(caseId);
 
   await logAudit({
     actorId: user._id,

@@ -10,11 +10,15 @@ import {
   queryCasesSchema
 } from '../validators/case.validator.js';
 import evidenceRoutes from './evidence.routes.js';
+import hypothesisRoutes from './hypothesis.routes.js';
+import relationshipRoutes from './relationship.routes.js';
 
 const router = Router();
 
 // Sub-resource routers
 router.use('/:caseId/evidence', evidenceRoutes);
+router.use('/:caseId/hypotheses', hypothesisRoutes);
+router.use('/:caseId/relationships', relationshipRoutes);
 
 // All case routes require authentication
 router.use(authenticate);

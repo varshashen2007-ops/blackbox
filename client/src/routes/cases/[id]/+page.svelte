@@ -5,6 +5,8 @@
   import { auth } from '$lib/stores/auth.js';
   import { goto } from '$app/navigation';
   import EvidenceBoard from '$lib/components/EvidenceBoard.svelte';
+  import HypothesisPanel from '$lib/components/HypothesisPanel.svelte';
+  import RelationshipGraph from '$lib/components/RelationshipGraph.svelte';
 
   let caseId = $page.params.id;
   let caseData = null;
@@ -175,7 +177,7 @@
         class:active={activeTab === 'evidence'}
         on:click={() => (activeTab = 'evidence')}
       >
-        Evidence Board (Track B)
+        Evidence Board
       </button>
 
       <button
@@ -183,7 +185,15 @@
         class:active={activeTab === 'hypotheses'}
         on:click={() => (activeTab = 'hypotheses')}
       >
-        Hypotheses & Graph (Track C)
+        Hypotheses & Intelligence
+      </button>
+
+      <button
+        class="tab-btn"
+        class:active={activeTab === 'graph'}
+        on:click={() => (activeTab = 'graph')}
+      >
+        Topology Graph
       </button>
     </div>
 
@@ -239,16 +249,10 @@
           </div>
         </div>
       </div>
-    {:else if activeTab === 'evidence'}
-      <EvidenceBoard {caseId} />
     {:else if activeTab === 'hypotheses'}
-      <div class="track-placeholder card">
-        <div class="placeholder-icon">🧠</div>
-        <h3>Track C — Hypotheses & Intelligence Graph</h3>
-        <p class="text-muted">
-          Dynamic confidence calculation algorithm, relationship graph visualization, and stance evaluation are developed on branch <code>track-c-hypotheses</code>.
-        </p>
-      </div>
+      <HypothesisPanel {caseId} />
+    {:else if activeTab === 'graph'}
+      <RelationshipGraph {caseId} />
     {/if}
   {/if}
 

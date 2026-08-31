@@ -15,6 +15,7 @@ const router = Router();
 // All admin routes require admin role
 router.use(authenticate, requireRole('admin'));
 
+router.get('/stats', adminController.getStats);
 router.get('/users', validate(queryUsersSchema, 'query'), adminController.listUsers);
 router.patch('/users/:id/role', validate(updateUserRoleSchema), adminController.updateUserRole);
 router.patch('/users/:id/status', validate(updateUserStatusSchema), adminController.updateUserStatus);

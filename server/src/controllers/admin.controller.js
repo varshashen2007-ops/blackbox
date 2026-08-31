@@ -2,6 +2,19 @@ import { User } from '../models/User.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logAudit } from '../middleware/audit.js';
+import { getSystemStatistics } from '../services/adminStats.service.js';
+
+export async function getStats(req, res, next) {
+  try {
+    const stats = await getSystemStatistics();
+    res.status(200).json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 
 export async function listUsers(req, res, next) {
   try {
