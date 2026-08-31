@@ -5,6 +5,11 @@ import { rateLimit } from 'express-rate-limit';
 import { config } from './config/env.js';
 import { errorHandler, AppError } from './middleware/errorHandler.js';
 
+// Route imports
+import authRoutes from './routes/auth.routes.js';
+import caseRoutes from './routes/case.routes.js';
+import adminRoutes from './routes/admin.routes.js';
+
 export function createApp() {
   const app = express();
 
@@ -25,8 +30,8 @@ export function createApp() {
 
   // Auth rate limiting
   const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 auth requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     standardHeaders: true,
     legacyHeaders: false,
     message: {
@@ -49,6 +54,11 @@ export function createApp() {
       }
     });
   });
+
+  // Mount API Routers
+  app.use('/api/v1/auth', authLimiter, authRoutes);
+  app.use('/api/v1/cases', caseRoutes);
+  app.use('/api/v1/admin', adminRoutes);
 
   // 404 Handler for undefined API routes
   app.use('/api/*', (req, res, next) => {

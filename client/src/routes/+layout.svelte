@@ -1,34 +1,59 @@
 <script>
+  import { onMount } from 'svelte';
   import { auth } from '$lib/stores/auth.js';
+  import { api } from '$lib/api/client.js';
+
+  onMount(async () => {
+    const token = api.getToken();
+    if (token) {
+      try {
+        const res = await api.get('/auth/me');
+        if (res && res.success && res.data) {
+          auth.setUser(res.data.user);
+        }
+      } catch (err) {
+        auth.logout();
+      }
+    } else {
+      auth.setLoading(false);
+    }
+  });
 </script>
 
 <div class="app-container">
   <header class="app-header">
     <div class="header-content">
       <div class="brand">
-        <div class="brand-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-            <line x1="3" y1="9" x2="21" y2="9"/>
-            <line x1="9" y1="21" x2="9" y2="9"/>
-          </svg>
-        </div>
-        <span class="brand-name">BlackBox</span>
+        <a href="/" class="brand-link">
+          <div class="brand-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="3" y1="9" x2="21" y2="9"/>
+              <line x1="9" y1="21" x2="9" y2="9"/>
+            </svg>
+          </div>
+          <span class="brand-name">BlackBox</span>
+        </a>
         <span class="badge">EVIDENCE INTELLIGENCE</span>
       </div>
 
       <nav class="nav-links">
         <a href="/" class="nav-item">Overview</a>
         <a href="/cases" class="nav-item">Cases</a>
-        <a href="/admin" class="nav-item">Admin</a>
+        {#if $auth.user?.role === 'admin'}
+          <a href="/admin/users" class="nav-item">User Admin</a>
+        {/if}
       </nav>
 
       <div class="auth-status">
         {#if $auth.isAuthenticated}
-          <span class="user-greeting">{$auth.user?.name || 'Investigator'}</span>
-          <button class="btn btn-secondary" on:click={auth.logout}>Sign Out</button>
+          <div class="user-chip">
+            <span class="user-name">{$auth.user?.name}</span>
+            <span class="user-role-badge">{$auth.user?.role?.toUpperCase()}</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" on:click={auth.logout}>Sign Out</button>
         {:else}
-          <a href="/login" class="btn btn-primary">Sign In</a>
+          <a href="/login" class="btn btn-primary btn-sm">Sign In</a>
         {/if}
       </div>
     </div>
@@ -40,7 +65,7 @@
 
   <footer class="app-footer">
     <div class="footer-content">
-      <p>BlackBox Digital Evidence Investigation Platform • Audit Monitored</p>
+      <p>BlackBox Digital Evidence Investigation Platform • Strictly Audited & Monitored</p>
     </div>
   </footer>
 </div>
@@ -110,6 +135,13 @@
     gap: 0.75rem;
   }
 
+  .brand-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    text-decoration: none;
+  }
+
   .brand-icon {
     background: linear-gradient(135deg, #1e3a8a, #3b82f6);
     color: white;
@@ -167,9 +199,26 @@
     gap: 0.875rem;
   }
 
-  .user-greeting {
+  .user-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .user-name {
     font-size: 0.875rem;
-    color: var(--text-secondary);
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .user-role-badge {
+    font-size: 0.625rem;
+    font-weight: 700;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    background-color: var(--bg-elevated);
+    color: var(--accent-cyan);
+    border: 1px solid var(--border-color);
   }
 
   :global(.btn) {
@@ -184,6 +233,11 @@
     cursor: pointer;
     border: 1px solid transparent;
     transition: all 0.15s ease;
+  }
+
+  :global(.btn-sm) {
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8125rem;
   }
 
   :global(.btn-primary) {
