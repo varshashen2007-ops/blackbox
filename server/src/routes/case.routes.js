@@ -9,8 +9,12 @@ import {
   transitionCaseSchema,
   queryCasesSchema
 } from '../validators/case.validator.js';
+import evidenceRoutes from './evidence.routes.js';
 
 const router = Router();
+
+// Sub-resource routers
+router.use('/:caseId/evidence', evidenceRoutes);
 
 // All case routes require authentication
 router.use(authenticate);

@@ -4,6 +4,7 @@
   import { api } from '$lib/api/client.js';
   import { auth } from '$lib/stores/auth.js';
   import { goto } from '$app/navigation';
+  import EvidenceBoard from '$lib/components/EvidenceBoard.svelte';
 
   let caseId = $page.params.id;
   let caseData = null;
@@ -239,13 +240,7 @@
         </div>
       </div>
     {:else if activeTab === 'evidence'}
-      <div class="track-placeholder card">
-        <div class="placeholder-icon">📁</div>
-        <h3>Track B — Evidence & Verification Board</h3>
-        <p class="text-muted">
-          Evidence collection, file metadata management, chain-of-custody tracking, and verification workflows are developed on branch <code>track-b-evidence</code>.
-        </p>
-      </div>
+      <EvidenceBoard {caseId} />
     {:else if activeTab === 'hypotheses'}
       <div class="track-placeholder card">
         <div class="placeholder-icon">🧠</div>
