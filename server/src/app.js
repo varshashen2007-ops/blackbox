@@ -4,6 +4,9 @@ import cors from 'cors';
 import { rateLimit } from 'express-rate-limit';
 import { config } from './config/env.js';
 import { errorHandler, AppError } from './middleware/errorHandler.js';
+import { sanitizeNoSqlInjection } from './middleware/nosqlSanitizer.js';
+import { authenticate } from './middleware/auth.js';
+import { getAiDashboardStats } from './controllers/ai.controller.js';
 
 // Route imports
 import authRoutes from './routes/auth.routes.js';
@@ -32,6 +35,9 @@ export function createApp() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+  // Global NoSQL Injection Sanitization
+  app.use(sanitizeNoSqlInjection);
+
   // Auth rate limiting
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -58,6 +64,9 @@ export function createApp() {
       }
     });
   });
+
+  // Global AI Supervisor Dashboard Endpoint
+  app.get('/api/v1/ai-supervisor/dashboard', authenticate, getAiDashboardStats);
 
   // Mount API Routers
   app.use('/api/v1/auth/google', googleAuthRoutes);

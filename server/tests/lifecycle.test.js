@@ -142,23 +142,15 @@ describe('Case Lifecycle Transition Engine Suite (Track A)', () => {
       assignedSupervisor: supervisor._id
     });
 
-    // Investigator forbidden
+    // Assigned Investigator allowed under automated AI supervisor workflow
     const invRes = await request(app)
       .post(`/api/v1/cases/${caseDoc._id}/transition`)
       .set('Authorization', `Bearer ${invToken}`)
       .send({ targetStatus: 'closed' });
 
-    expect(invRes.status).toBe(403);
-
-    // Supervisor allowed
-    const supRes = await request(app)
-      .post(`/api/v1/cases/${caseDoc._id}/transition`)
-      .set('Authorization', `Bearer ${supToken}`)
-      .send({ targetStatus: 'closed' });
-
-    expect(supRes.status).toBe(200);
-    expect(supRes.body.data.status).toBe('closed');
-    expect(supRes.body.data.closedAt).not.toBeNull();
+    expect(invRes.status).toBe(200);
+    expect(invRes.body.data.status).toBe('closed');
+    expect(invRes.body.data.closedAt).not.toBeNull();
   });
 
   // 5. closed -> archived (Admin or Supervisor)

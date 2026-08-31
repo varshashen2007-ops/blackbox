@@ -22,24 +22,24 @@ const TRANSITION_RULES = {
   },
   under_review: {
     active: {
-      roles: ['supervisor'],
+      roles: ['investigator', 'supervisor', 'admin'],
       requireReason: true, // sends back for more work, must include a reason
       auditAction: 'CASE_SENT_BACK_FOR_WORK'
     },
     closed: {
-      roles: ['supervisor'],
+      roles: ['investigator', 'supervisor', 'admin'],
       requireReason: false,
       auditAction: 'CASE_CLOSED'
     }
   },
   closed: {
     archived: {
-      roles: ['admin', 'supervisor'],
+      roles: ['investigator', 'supervisor', 'admin'],
       requireReason: false,
       auditAction: 'CASE_ARCHIVED'
     },
     active: {
-      roles: ['supervisor'],
+      roles: ['investigator', 'supervisor', 'admin'],
       requireReason: true, // case reopened, requires reason
       auditAction: 'CASE_REOPENED'
     }

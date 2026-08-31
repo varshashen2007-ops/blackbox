@@ -123,8 +123,8 @@ export async function getCases(req, res, next) {
     }
 
     // Text search filter
-    if (search) {
-      query.$text = { $search: search };
+    if (typeof search === 'string' && search.trim().length > 0) {
+      query.$text = { $search: search.trim() };
     }
 
     const pageNum = parseInt(page, 10) || 1;

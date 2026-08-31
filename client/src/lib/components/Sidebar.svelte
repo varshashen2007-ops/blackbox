@@ -72,6 +72,15 @@
 
     <div class="nav-section-label">INTELLIGENCE & AUDIT</div>
 
+    <a href="/ai-supervisor" class="nav-item" class:active={currentPath === '/ai-supervisor'}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2v20M2 12h20"/>
+        <path d="M17 7l-5 5-5-5"/>
+      </svg>
+      <span>AI Supervisor</span>
+      <span class="nav-badge-cyan">AUTO</span>
+    </a>
+
     <button type="button" class="nav-item ai-nav-btn" on:click={onOpenAi}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2z"/>

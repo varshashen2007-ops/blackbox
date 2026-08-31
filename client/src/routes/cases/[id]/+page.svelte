@@ -144,6 +144,41 @@
     return new Date(d).toLocaleDateString();
   }
 
+  let aiReview = null;
+  let aiReviewLoading = false;
+  let aiReviewError = null;
+
+  async function loadAiReview() {
+    aiReviewLoading = true;
+    aiReviewError = null;
+    try {
+      const res = await api.get(`/cases/${caseId}/ai/review`);
+      if (res?.success) {
+        aiReview = res.data;
+      }
+    } catch (err) {
+      aiReviewError = err.message || 'Failed to load AI review.';
+    } finally {
+      aiReviewLoading = false;
+    }
+  }
+
+  async function runAiReview() {
+    aiReviewLoading = true;
+    aiReviewError = null;
+    try {
+      const res = await api.post(`/cases/${caseId}/ai/review`, {});
+      if (res?.success) {
+        aiReview = res.data;
+        await loadCase();
+      }
+    } catch (err) {
+      aiReviewError = err.message || 'Failed to run AI review.';
+    } finally {
+      aiReviewLoading = false;
+    }
+  }
+
   const TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'evidence', label: 'Evidence Board' },
@@ -151,11 +186,15 @@
     { id: 'graph', label: 'Topology Graph' },
     { id: 'timeline', label: 'Audit Timeline' },
     { id: 'report', label: 'Case Report' },
+    { id: 'ai_supervisor', label: 'AI Supervisor', badge: 'AUTOMATED' },
     { id: 'ai', label: 'AI Investigator' }
   ];
 
   onMount(() => {
+    const urlTab = $page.url.searchParams.get('tab');
+    if (urlTab) activeTab = urlTab;
     loadCase();
+    if (activeTab === 'ai_supervisor') loadAiReview();
   });
 </script>
 
@@ -485,6 +524,192 @@
               <p>Click the "Case Report" tab to generate the forensic report.</p>
               <button class="btn btn-primary btn-sm" style="margin-top: 0.75rem;" on:click={loadReport}>
                 Generate Report
+              </button>
+            </div>
+          {/if}
+        </div>
+
+      <!-- AI SUPERVISOR TAB -->
+      {:else if activeTab === 'ai_supervisor'}
+        <div class="ai-supervisor-section card p-6 space-y-6">
+          <div class="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-border pb-4 gap-4">
+            <div>
+              <div class="flex items-center gap-3">
+                <h3 class="text-xl font-bold text-white">BLACKBOX AI SUPERVISOR REVIEW</h3>
+                <span class="px-2.5 py-0.5 rounded text-xs font-mono font-semibold bg-cyan-950 text-cyan-400 border border-cyan-800">
+                  AUTOMATED ENGINE
+                </span>
+              </div>
+              <p class="text-sm text-text-muted mt-1">
+                Automated case analysis, cryptographic hash integrity checks, contradiction detection, and hypothesis confidence evaluation.
+              </p>
+            </div>
+            <button
+              class="btn btn-primary btn-sm flex items-center gap-2 font-mono"
+              on:click={runAiReview}
+              disabled={aiReviewLoading}
+            >
+              {#if aiReviewLoading}
+                <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Analyzing Case Files...
+              {:else}
+                ⚡ Run Automated AI Review
+              {/if}
+            </button>
+          </div>
+
+          {#if aiReviewError}
+            <div class="p-4 rounded-lg bg-red-950/50 border border-red-800 text-red-300 text-sm font-mono">
+              ⚠️ {aiReviewError}
+            </div>
+          {/if}
+
+          {#if aiReviewLoading && !aiReview}
+            <div class="p-12 text-center text-text-muted font-mono space-y-3">
+              <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto"></div>
+              <div>Running cryptographic integrity checks and LLM forensic stance reasoning...</div>
+            </div>
+          {:else if aiReview}
+            <!-- Review Decision Card -->
+            <div class="p-4 rounded-lg bg-bg-elevated border border-border space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <span class="text-xs font-mono uppercase text-text-muted font-semibold">REVIEW DECISION:</span>
+                  <span class="px-3 py-1 rounded text-xs font-mono font-extrabold border bg-cyan-950 text-cyan-400 border-cyan-800">
+                    ● {aiReview.decision || 'REVIEW_COMPLETE'}
+                  </span>
+                </div>
+                <span class="text-xs font-mono text-text-muted">
+                  Model: {aiReview.modelName || 'Llama-3.3-70B'} ({aiReview.modelProvider || 'groq'})
+                </span>
+              </div>
+              <p class="text-sm text-white leading-relaxed font-medium">
+                {aiReview.overallAssessment}
+              </p>
+            </div>
+
+            <!-- Deterministic Metrics Row -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 font-mono">
+              <div class="p-3 rounded bg-bg-card border border-border">
+                <div class="text-[11px] text-text-muted uppercase">TOTAL EVIDENCE</div>
+                <div class="text-xl font-bold text-white">{aiReview.deterministicMetrics?.totalEvidence || 0}</div>
+              </div>
+              <div class="p-3 rounded bg-bg-card border border-border">
+                <div class="text-[11px] text-text-muted uppercase">VERIFIED / REVIEWED</div>
+                <div class="text-xl font-bold text-emerald-400">{aiReview.deterministicMetrics?.verifiedCount || 0}</div>
+              </div>
+              <div class="p-3 rounded bg-bg-card border border-border">
+                <div class="text-[11px] text-text-muted uppercase">INTEGRITY PASSED</div>
+                <div class="text-xl font-bold text-cyan-400">{aiReview.deterministicMetrics?.integrityPassedCount || 0}</div>
+              </div>
+              <div class="p-3 rounded bg-bg-card border border-border">
+                <div class="text-[11px] text-text-muted uppercase">LEADING CONFIDENCE</div>
+                <div class="text-xl font-bold text-cyan-400">{aiReview.deterministicMetrics?.leadingConfidence || 50}%</div>
+              </div>
+              <div class="p-3 rounded bg-bg-card border border-border">
+                <div class="text-[11px] text-text-muted uppercase">CONTRADICTIONS</div>
+                <div class="text-xl font-bold { (aiReview.deterministicMetrics?.conflictCount || 0) > 0 ? 'text-amber-400' : 'text-emerald-400' }">
+                  {aiReview.deterministicMetrics?.conflictCount || 0}
+                </div>
+              </div>
+            </div>
+
+            <!-- Evidence Assessments Section -->
+            <div class="space-y-3">
+              <h4 class="text-sm font-bold text-white uppercase font-mono tracking-wider border-b border-border pb-2">
+                Evidence Integrity & Stance Assessments
+              </h4>
+              {#if (aiReview.evidenceAssessments || []).length === 0}
+                <div class="text-xs text-text-muted font-mono italic">No evidence items analyzed.</div>
+              {:else}
+                <div class="space-y-2">
+                  {#each aiReview.evidenceAssessments as evEval}
+                    <div class="p-3 rounded bg-bg-card border border-border flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                      <div class="space-y-1 flex-1">
+                        <div class="flex items-center gap-2">
+                          <span class="font-bold text-white">{evEval.title || 'Evidence Item'}</span>
+                          <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-950 text-cyan-400 border border-cyan-800">
+                            {evEval.assessment}
+                          </span>
+                          <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-800">
+                            SHA-256 {evEval.integritySignal || 'CALCULATED'}
+                          </span>
+                        </div>
+                        <p class="text-text-muted">{evEval.reason}</p>
+                      </div>
+                      <div class="font-mono text-cyan-400 text-right">
+                        Stance Confidence: {Math.round((evEval.confidence || 0.8) * 100)}%
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+
+            <!-- Hypothesis Assessments Section -->
+            <div class="space-y-3">
+              <h4 class="text-sm font-bold text-white uppercase font-mono tracking-wider border-b border-border pb-2">
+                Competing Hypothesis Evaluations
+              </h4>
+              {#if (aiReview.hypothesisAssessments || []).length === 0}
+                <div class="text-xs text-text-muted font-mono italic">No competing hypotheses evaluated.</div>
+              {:else}
+                <div class="space-y-2">
+                  {#each aiReview.hypothesisAssessments as hypEval}
+                    <div class="p-3 rounded bg-bg-card border border-border space-y-1 text-xs">
+                      <div class="flex items-center justify-between">
+                        <span class="font-bold text-white text-sm">{hypEval.title || 'Hypothesis'}</span>
+                        <span class="font-mono text-cyan-400 font-extrabold text-sm">
+                          {hypEval.confidence}% Confidence
+                        </span>
+                      </div>
+                      <p class="text-text-muted">{hypEval.reasoning}</p>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+
+            <!-- Recommendations & Contradictions Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="p-4 rounded bg-bg-card border border-border space-y-2">
+                <h5 class="text-xs font-mono font-bold text-white uppercase tracking-wider text-cyan-400">
+                  AI RECOMMENDATIONS
+                </h5>
+                <ul class="space-y-1 text-xs text-text-muted list-disc list-inside">
+                  {#each (aiReview.recommendations || []) as rec}
+                    <li>{rec}</li>
+                  {/each}
+                </ul>
+              </div>
+
+              <div class="p-4 rounded bg-bg-card border border-border space-y-2">
+                <h5 class="text-xs font-mono font-bold text-white uppercase tracking-wider text-amber-400">
+                  FLAGGED CONTRADICTIONS
+                </h5>
+                {#if (aiReview.contradictions || []).length === 0}
+                  <div class="text-xs text-emerald-400 font-mono">✓ No unresolved evidence contradictions detected.</div>
+                {:else}
+                  <ul class="space-y-1 text-xs text-amber-300 list-disc list-inside">
+                    {#each aiReview.contradictions as con}
+                      <li>{con.description} (Severity: {con.severity})</li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
+            </div>
+
+            <!-- Confidence Explanation -->
+            {#if aiReview.confidenceExplanation}
+              <div class="p-3 rounded bg-bg-elevated border border-border text-xs font-mono text-text-muted">
+                ℹ️ <strong>Confidence Engine Explanation:</strong> {aiReview.confidenceExplanation}
+              </div>
+            {/if}
+          {:else}
+            <div class="p-12 text-center text-text-muted font-mono space-y-3">
+              <p>No automated AI review has been generated for this case yet.</p>
+              <button class="btn btn-primary btn-sm" on:click={runAiReview}>
+                ⚡ Run Automated AI Review Now
               </button>
             </div>
           {/if}

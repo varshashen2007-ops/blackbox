@@ -5,6 +5,7 @@ export function errorHandler(err, req, res, next) {
   const errorCode = err.code || (statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR');
 
   const response = {
+    success: false,
     error: {
       code: errorCode,
       message: err.message || 'An unexpected error occurred'
@@ -15,7 +16,8 @@ export function errorHandler(err, req, res, next) {
     response.error.details = err.details;
   }
 
-  if (!config.isProduction && err.stack) {
+  // Never expose raw stack traces in production environment
+  if (config.nodeEnv === 'development' && err.stack) {
     response.error.stack = err.stack;
   }
 

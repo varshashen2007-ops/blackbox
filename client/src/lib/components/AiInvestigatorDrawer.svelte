@@ -142,14 +142,20 @@
         <button class="quick-pill" on:click={() => handleQuickPrompt('Summarize this investigation and key evidence.')}>
           📋 Summarize Case
         </button>
-        <button class="quick-pill" on:click={() => handleQuickPrompt('What evidence supports the leading hypothesis?')}>
-          🔍 Supporting Evidence
+        <button class="quick-pill" on:click={() => handleQuickPrompt('Why is H1 currently the leading hypothesis?')}>
+          ⭐ Why H1 Leading?
         </button>
-        <button class="quick-pill" on:click={() => handleQuickPrompt('Are there any conflicting or contradictory evidence relationships?')}>
-          ⚠️ Check Contradictions
+        <button class="quick-pill" on:click={() => handleQuickPrompt('What evidence contradicts H1?')}>
+          ⚡ Contradicts H1?
         </button>
-        <button class="quick-pill" on:click={() => handleQuickPrompt('What should the investigator review next?')}>
-          💡 Next Steps
+        <button class="quick-pill" on:click={() => handleQuickPrompt('Which evidence remains unverified?')}>
+          🔍 Unverified Items
+        </button>
+        <button class="quick-pill" on:click={() => handleQuickPrompt('Explain the confidence calculation.')}>
+          🧮 Confidence Formula
+        </button>
+        <button class="quick-pill" on:click={() => handleQuickPrompt('Compare H1 and H2.')}>
+          ⚖️ Compare H1 & H2
         </button>
       </div>
 

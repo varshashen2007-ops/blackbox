@@ -68,7 +68,7 @@ const evidenceSchema = new mongoose.Schema(
     },
     verificationStatus: {
       type: String,
-      enum: ['unverified', 'pending', 'verified', 'rejected'],
+      enum: ['unverified', 'pending', 'pending_review', 'ai_reviewed', 'verified', 'flagged', 'rejected', 'needs_review'],
       default: 'unverified',
       required: true,
       index: true
@@ -109,6 +109,12 @@ const evidenceSchema = new mongoose.Schema(
     hashAlgorithm: {
       type: String,
       default: 'SHA-256'
+    },
+    integrityStatus: {
+      type: String,
+      enum: ['NOT_AVAILABLE', 'CALCULATED', 'MATCHED', 'MISMATCHED'],
+      default: 'CALCULATED',
+      index: true
     },
     hashVerified: {
       type: Boolean,

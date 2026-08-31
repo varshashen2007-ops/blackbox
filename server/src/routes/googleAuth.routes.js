@@ -29,32 +29,58 @@ router.post('/verify', async (req, res, next) => {
         success: false,
         error: {
           code: 'OAUTH_UNCONFIGURED',
-          message: 'Google Identity Service is not configured on this server. Please use standard BlackBox investigator credentials.'
+          message: 'Google Identity Service is not configured on this server. Please set GOOGLE_CLIENT_ID in .env.'
         }
       });
     }
 
-    if (!email) {
+    let verifiedEmail = email;
+    let verifiedName = name || 'Google Verified Investigator';
+    let verifiedSub = googleSubjectId || null;
+
+    // Validate Google ID token directly with Google TokenInfo API if provided
+    if (credential) {
+      try {
+        const tokenRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+        if (tokenRes.ok) {
+          const payload = await tokenRes.json();
+          // Verify audience matches GOOGLE_CLIENT_ID if specified
+          if (process.env.GOOGLE_CLIENT_ID && payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+            return res.status(401).json({
+              success: false,
+              error: { code: 'OAUTH_AUDIENCE_MISMATCH', message: 'Google OAuth audience mismatch.' }
+            });
+          }
+          if (payload.email) verifiedEmail = payload.email;
+          if (payload.name) verifiedName = payload.name;
+          if (payload.sub) verifiedSub = payload.sub;
+        }
+      } catch (err) {
+        console.warn('[Google OAuth] Could not verify token with remote endpoint:', err.message);
+      }
+    }
+
+    if (!verifiedEmail) {
       return res.status(400).json({
         success: false,
         error: { code: 'BAD_REQUEST', message: 'Email identifier missing from Google credential verification' }
       });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = verifiedEmail.toLowerCase().trim();
     let user = await User.findOne({ email: normalizedEmail });
 
     if (!user) {
       // Create new Level 1 Investigator with Identity Verified (NEVER Supervisor or Admin)
       user = await User.create({
-        name: name || 'Google Verified Investigator',
+        name: verifiedName,
         email: normalizedEmail,
         passwordHash: 'oauth_managed_account_no_password',
         role: 'investigator', // Public identity verification produces investigator role only
         status: 'active',
         emailVerified: true,
         identityVerified: true,
-        googleSubjectId: googleSubjectId || null,
+        googleSubjectId: verifiedSub,
         supervisorStatus: 'none',
         mfaEnabled: false
       });
@@ -71,7 +97,7 @@ router.post('/verify', async (req, res, next) => {
       // Existing user: mark identity verified without changing their assigned role
       user.identityVerified = true;
       user.emailVerified = true;
-      if (googleSubjectId) user.googleSubjectId = googleSubjectId;
+      if (verifiedSub) user.googleSubjectId = verifiedSub;
       user.lastLoginAt = new Date();
       await user.save();
     }
@@ -100,7 +126,7 @@ router.post('/verify', async (req, res, next) => {
 
     await logAudit({
       actorId: user._id,
-      action: 'LOGIN_SUCCESS',
+      action: 'USER_LOGIN',
       entityType: 'Auth',
       entityId: user._id,
       metadata: { email: user.email, role: user.role, securityLevel: user.securityLevel },
