@@ -248,6 +248,27 @@ export async function appendCustody(req, res, next) {
   }
 }
 
+export async function verifyIntegrity(req, res, next) {
+  try {
+    const { caseId, id } = req.params;
+    const ipAddress = req.ip || req.connection?.remoteAddress || 'unknown';
+
+    const result = await evidenceService.verifyEvidenceIntegrity({
+      caseId,
+      evidenceId: id,
+      user: req.user,
+      ipAddress
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function downloadFile(req, res, next) {
   try {
     const { caseId, id } = req.params;

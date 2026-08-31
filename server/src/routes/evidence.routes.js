@@ -57,6 +57,7 @@ router.post(
   evidenceController.appendCustody
 );
 
+router.post('/:id/verify-integrity', evidenceController.verifyIntegrity);
 router.get('/:id/file', evidenceController.downloadFile);
 
 export default router;

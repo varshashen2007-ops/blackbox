@@ -11,11 +11,13 @@
   let caseId = $page.params.id;
   let caseData = null;
   let timeline = [];
+  let aiBrief = null;
+  let report = null;
   let loading = true;
   let errorMsg = null;
-  let activeTab = 'timeline';
+  let activeTab = 'overview';
 
-  // Transition Action state
+  // Transition state
   let showReasonModal = false;
   let selectedTargetStatus = null;
   let selectedActionLabel = '';
@@ -23,30 +25,48 @@
   let transitioning = false;
   let transitionError = null;
 
+  // Report state
+  let reportLoading = false;
+  let reportError = null;
+
   async function loadCase() {
     loading = true;
     errorMsg = null;
-
     try {
-      const [caseRes, timelineRes] = await Promise.all([
+      const [caseRes, timelineRes, briefRes] = await Promise.allSettled([
         api.get(`/cases/${caseId}`),
-        api.get(`/cases/${caseId}/timeline`)
+        api.get(`/cases/${caseId}/timeline`),
+        api.get(`/cases/${caseId}/ai/brief`)
       ]);
 
-      if (caseRes && caseRes.success) {
-        caseData = caseRes.data;
+      if (caseRes.status === 'fulfilled' && caseRes.value?.success) {
+        caseData = caseRes.value.data;
+      } else if (caseRes.status === 'rejected') {
+        const err = caseRes.reason;
+        if (err?.code === 'UNAUTHENTICATED' || err?.code === 'TOKEN_EXPIRED') goto('/login');
+        else errorMsg = err?.message || 'Failed to load case.';
       }
-      if (timelineRes && timelineRes.success) {
-        timeline = timelineRes.data;
+      if (timelineRes.status === 'fulfilled' && timelineRes.value?.success) {
+        timeline = timelineRes.value.data;
       }
-    } catch (err) {
-      if (err.code === 'UNAUTHENTICATED' || err.code === 'TOKEN_EXPIRED') {
-        goto('/login');
-      } else {
-        errorMsg = err.message || 'Failed to load case details.';
+      if (briefRes.status === 'fulfilled' && briefRes.value?.success) {
+        aiBrief = briefRes.value.data;
       }
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadReport() {
+    reportLoading = true;
+    reportError = null;
+    try {
+      const res = await api.get(`/cases/${caseId}/report`);
+      if (res?.success) report = res.data;
+    } catch (err) {
+      reportError = err.message || 'Failed to generate report.';
+    } finally {
+      reportLoading = false;
     }
   }
 
@@ -54,7 +74,6 @@
     transitionError = null;
     selectedTargetStatus = transition.targetStatus;
     selectedActionLabel = getActionLabel(transition.targetStatus);
-
     if (transition.requireReason) {
       transitionReason = '';
       showReasonModal = true;
@@ -66,14 +85,12 @@
   async function executeTransition(targetStatus, reason) {
     transitioning = true;
     transitionError = null;
-
     try {
       const res = await api.post(`/cases/${caseId}/transition`, {
         targetStatus,
         reason: reason || undefined
       });
-
-      if (res && res.success) {
+      if (res?.success) {
         showReasonModal = false;
         await loadCase();
       }
@@ -86,69 +103,110 @@
 
   function getActionLabel(targetStatus) {
     switch (targetStatus) {
-      case 'active':
-        return caseData?.status === 'closed' ? 'Reopen Case' : 'Activate Investigation';
-      case 'under_review':
-        return 'Submit for Supervisor Review';
-      case 'closed':
-        return 'Approve Closure';
-      case 'archived':
-        return 'Archive Case Record';
-      default:
-        return `Transition to ${targetStatus}`;
+      case 'active': return caseData?.status === 'closed' ? 'Reopen Case' : 'Activate Investigation';
+      case 'under_review': return 'Submit for Supervisor Review';
+      case 'closed': return 'Approve Closure';
+      case 'archived': return 'Archive Case Record';
+      default: return `Transition to ${targetStatus}`;
     }
   }
 
-  function getStatusBadgeClass(status) {
-    switch (status) {
-      case 'draft': return 'badge-draft';
-      case 'active': return 'badge-active';
-      case 'under_review': return 'badge-review';
-      case 'closed': return 'badge-closed';
-      case 'archived': return 'badge-archived';
-      default: return '';
+  // Lifecycle steps for visual stepper
+  const LIFECYCLE_STEPS = ['draft', 'active', 'under_review', 'closed', 'archived'];
+
+  function getStepState(step, currentStatus) {
+    const currentIdx = LIFECYCLE_STEPS.indexOf(currentStatus);
+    const stepIdx = LIFECYCLE_STEPS.indexOf(step);
+    if (stepIdx < currentIdx) return 'done';
+    if (stepIdx === currentIdx) return 'current';
+    return 'pending';
+  }
+
+  function stepLabel(step) {
+    switch (step) {
+      case 'draft': return 'Draft';
+      case 'active': return 'Active';
+      case 'under_review': return 'Review';
+      case 'closed': return 'Closed';
+      case 'archived': return 'Archived';
     }
   }
+
+  function formatDate(d) {
+    return d ? new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+  }
+
+  function formatRelative(d) {
+    const diff = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return new Date(d).toLocaleDateString();
+  }
+
+  const TABS = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'evidence', label: 'Evidence Board' },
+    { id: 'hypotheses', label: 'Hypotheses' },
+    { id: 'graph', label: 'Topology Graph' },
+    { id: 'timeline', label: 'Audit Timeline' },
+    { id: 'report', label: 'Case Report' },
+    { id: 'ai', label: 'AI Investigator' }
+  ];
 
   onMount(() => {
     loadCase();
   });
 </script>
 
-<div class="case-workspace">
-  {#if errorMsg}
-    <div class="alert alert-danger">{errorMsg}</div>
-    <a href="/cases" class="btn btn-secondary">← Back to Cases</a>
-  {:else if loading}
-    <div class="loading-box">
-      <div class="spinner"></div>
-      <p>Loading Case Workspace...</p>
-    </div>
-  {:else if caseData}
-    <div class="workspace-header">
-      <div class="breadcrumb">
+{#if errorMsg}
+  <div class="alert-banner">
+    <strong>Access Denied or Case Not Found:</strong> {errorMsg}
+    <a href="/cases" class="btn btn-secondary btn-sm" style="margin-left: 1rem;">← Back to Cases</a>
+  </div>
+{:else if loading}
+  <div class="loading-workspace">
+    <div class="spinner"></div>
+    <p class="font-mono">Loading Investigation Workspace...</p>
+  </div>
+{:else if caseData}
+  <div class="workspace">
+
+    <!-- ===== FORENSIC CASE HEADER ===== -->
+    <div class="case-header">
+      <div class="case-breadcrumb">
         <a href="/cases" class="crumb-link">Cases</a>
         <span class="crumb-sep">/</span>
-        <span class="crumb-current font-mono">CASE-{caseData.id?.slice(-6).toUpperCase()}</span>
+        <span class="crumb-current font-mono">CASE-{caseData.id?.slice(-8).toUpperCase()}</span>
       </div>
 
-      <div class="header-main">
-        <div class="title-block">
-          <div class="badges-row">
-            <span class={`status-badge ${getStatusBadgeClass(caseData.status)}`}>
+      <div class="case-header-main">
+        <div class="case-header-left">
+          <div class="badge-row">
+            <span class="status-badge badge-status-{caseData.status}">
               {caseData.status.replace('_', ' ').toUpperCase()}
             </span>
-            <span class="priority-badge">{caseData.priority.toUpperCase()} PRIORITY</span>
+            <span class="priority-chip priority-{caseData.priority}">
+              {caseData.priority?.toUpperCase()} PRIORITY
+            </span>
+            {#if caseData.category}
+              <span class="meta-chip">{caseData.category}</span>
+            {/if}
           </div>
-          <h1>{caseData.title}</h1>
+          <h1 class="case-title">{caseData.title}</h1>
+          <p class="case-meta-row font-mono">
+            Created {formatDate(caseData.createdAt)} by {caseData.createdBy?.name || '—'}
+            {#if caseData.assignedSupervisor}
+              &nbsp;• Supervisor: {caseData.assignedSupervisor?.name}
+            {/if}
+          </p>
         </div>
 
-        <!-- Role-Gated Lifecycle Action Buttons -->
-        <div class="lifecycle-actions">
-          {#if caseData.allowedTransitions && caseData.allowedTransitions.length > 0}
+        <div class="case-header-actions">
+          {#if caseData.allowedTransitions?.length > 0}
             {#each caseData.allowedTransitions as t}
               <button
-                class="btn btn-action"
+                class="btn btn-secondary btn-sm"
                 on:click={() => handleTransitionClick(t)}
                 disabled={transitioning}
               >
@@ -156,168 +214,413 @@
               </button>
             {/each}
           {:else}
-            <span class="no-actions-badge">No available status transitions</span>
+            <span class="no-transitions font-mono">No available transitions</span>
           {/if}
         </div>
       </div>
-    </div>
 
-    <!-- Case Workspace Navigation Tabs -->
-    <div class="workspace-tabs">
-      <button
-        class="tab-btn"
-        class:active={activeTab === 'timeline'}
-        on:click={() => (activeTab = 'timeline')}
-      >
-        Investigation Timeline ({timeline.length})
-      </button>
-
-      <button
-        class="tab-btn"
-        class:active={activeTab === 'evidence'}
-        on:click={() => (activeTab = 'evidence')}
-      >
-        Evidence Board
-      </button>
-
-      <button
-        class="tab-btn"
-        class:active={activeTab === 'hypotheses'}
-        on:click={() => (activeTab = 'hypotheses')}
-      >
-        Hypotheses & Intelligence
-      </button>
-
-      <button
-        class="tab-btn"
-        class:active={activeTab === 'graph'}
-        on:click={() => (activeTab = 'graph')}
-      >
-        Topology Graph
-      </button>
-    </div>
-
-    <!-- Tab Content -->
-    {#if activeTab === 'timeline'}
-      <div class="tab-pane">
-        <div class="info-grid">
-          <div class="card meta-panel">
-            <h3>Case Overview</h3>
-            <p class="case-full-desc">{caseData.description}</p>
-            
-            <div class="team-section">
-              <h4>Assigned Personnel</h4>
-              <div class="person-row">
-                <span class="role-tag">Creator</span>
-                <span class="person-name">{caseData.createdBy?.name || 'Unknown'}</span>
-              </div>
-              <div class="person-row">
-                <span class="role-tag">Supervisor</span>
-                <span class="person-name">{caseData.assignedSupervisor?.name || 'Unassigned'}</span>
-              </div>
+      <!-- Lifecycle Stepper -->
+      <div class="lifecycle-stepper">
+        {#each LIFECYCLE_STEPS as step, i}
+          <div class="step step-{getStepState(step, caseData.status)}">
+            <div class="step-circle">
+              {#if getStepState(step, caseData.status) === 'done'}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              {:else}
+                <span>{i + 1}</span>
+              {/if}
             </div>
+            <span class="step-label">{stepLabel(step)}</span>
           </div>
+          {#if i < LIFECYCLE_STEPS.length - 1}
+            <div class="step-connector step-connector-{getStepState(LIFECYCLE_STEPS[i + 1], caseData.status)}"></div>
+          {/if}
+        {/each}
+      </div>
+    </div>
 
-          <div class="timeline-panel">
-            <h3>Chronological Audit & Lifecycle Trail</h3>
-            
-            {#if timeline.length === 0}
-              <div class="empty-timeline">No timeline events recorded yet.</div>
-            {:else}
-              <div class="timeline-list">
-                {#each timeline as item (item.id)}
-                  <div class="timeline-item">
-                    <div class="timeline-marker"></div>
-                    <div class="timeline-content">
-                      <div class="event-header">
-                        <span class="event-action font-mono">{item.action}</span>
-                        <span class="event-time">{new Date(item.timestamp).toLocaleString()}</span>
-                      </div>
-                      <div class="event-actor">
-                        By <strong>{item.actor?.name || 'System'}</strong> ({item.actor?.role || 'system'})
-                      </div>
-                      {#if item.metadata?.reason}
-                        <div class="event-reason">
-                          <strong>Documented Reason:</strong> "{item.metadata.reason}"
-                        </div>
-                      {/if}
-                    </div>
-                  </div>
+    <!-- ===== WORKSPACE TABS ===== -->
+    <div class="workspace-tabs">
+      {#each TABS as tab}
+        <button
+          class="tab-btn"
+          class:tab-active={activeTab === tab.id}
+          on:click={() => {
+            activeTab = tab.id;
+            if (tab.id === 'report' && !report && !reportLoading) loadReport();
+          }}
+        >
+          {tab.label}
+          {#if tab.id === 'timeline' && timeline.length > 0}
+            <span class="tab-count">{timeline.length}</span>
+          {/if}
+          {#if tab.id === 'ai'}
+            <span class="tab-ai-pill">AI</span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+
+    <!-- ===== TAB CONTENT ===== -->
+    <div class="tab-content">
+
+      <!-- OVERVIEW TAB -->
+      {#if activeTab === 'overview'}
+        <div class="overview-grid">
+          <!-- Description Card -->
+          <div class="card overview-desc-card">
+            <div class="card-title-row">
+              <h3>Case Description & Scope</h3>
+            </div>
+            <p class="desc-text">{caseData.description || 'No description provided.'}</p>
+            {#if caseData.tags?.length > 0}
+              <div class="tag-row">
+                {#each caseData.tags as tag}
+                  <span class="tag-chip">#{tag}</span>
                 {/each}
               </div>
             {/if}
           </div>
+
+          <!-- Personnel Card -->
+          <div class="card">
+            <div class="card-title-row">
+              <h3>Assigned Personnel</h3>
+            </div>
+            <div class="personnel-list">
+              {#if caseData.createdBy}
+                <div class="personnel-row">
+                  <span class="personnel-role">Lead Investigator</span>
+                  <span class="personnel-name">{caseData.createdBy.name}</span>
+                  <span class="personnel-email font-mono">{caseData.createdBy.email}</span>
+                </div>
+              {/if}
+              {#if caseData.assignedSupervisor}
+                <div class="personnel-row">
+                  <span class="personnel-role">Supervisor</span>
+                  <span class="personnel-name">{caseData.assignedSupervisor.name}</span>
+                  <span class="personnel-email font-mono">{caseData.assignedSupervisor.email}</span>
+                </div>
+              {/if}
+              {#if caseData.assignedInvestigators?.length > 0}
+                {#each caseData.assignedInvestigators as inv}
+                  <div class="personnel-row">
+                    <span class="personnel-role">Investigator</span>
+                    <span class="personnel-name">{inv.name}</span>
+                    <span class="personnel-email font-mono">{inv.email}</span>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          </div>
+
+          <!-- AI Brief Card -->
+          {#if aiBrief}
+            <div class="card ai-brief-card">
+              <div class="card-title-row ai-title-row">
+                <h3>AI Investigator Brief</h3>
+                <span class="ai-model-badge font-mono">{aiBrief.model || 'forensic-engine'}</span>
+              </div>
+              <div class="ai-metrics-row">
+                <div class="ai-metric">
+                  <span class="ai-metric-val">{aiBrief.metrics?.totalEvidence ?? 0}</span>
+                  <span class="ai-metric-label">Total Evidence</span>
+                </div>
+                <div class="ai-metric">
+                  <span class="ai-metric-val ai-val-success">{aiBrief.metrics?.verifiedCount ?? 0}</span>
+                  <span class="ai-metric-label">Verified</span>
+                </div>
+                <div class="ai-metric">
+                  <span class="ai-metric-val ai-val-warn">{aiBrief.metrics?.unverifiedCount ?? 0}</span>
+                  <span class="ai-metric-label">Unverified</span>
+                </div>
+                <div class="ai-metric">
+                  <span class="ai-metric-val">{aiBrief.metrics?.hypothesisCount ?? 0}</span>
+                  <span class="ai-metric-label">Hypotheses</span>
+                </div>
+                {#if aiBrief.metrics?.conflictCount > 0}
+                  <div class="ai-metric">
+                    <span class="ai-metric-val ai-val-danger">{aiBrief.metrics.conflictCount}</span>
+                    <span class="ai-metric-label">⚠️ Conflicts</span>
+                  </div>
+                {/if}
+              </div>
+              <ul class="ai-bullets">
+                {#each aiBrief.summaryBullets as bullet}
+                  <li>{bullet}</li>
+                {/each}
+              </ul>
+              <p class="ai-disclaimer font-mono">{aiBrief.disclaimer}</p>
+            </div>
+          {/if}
         </div>
+
+      <!-- EVIDENCE BOARD TAB -->
+      {:else if activeTab === 'evidence'}
+        <EvidenceBoard {caseId} userRole={$auth.user?.role} on:updated={loadCase} />
+
+      <!-- HYPOTHESES TAB -->
+      {:else if activeTab === 'hypotheses'}
+        <HypothesisPanel {caseId} userRole={$auth.user?.role} on:updated={loadCase} />
+
+      <!-- TOPOLOGY GRAPH TAB -->
+      {:else if activeTab === 'graph'}
+        <RelationshipGraph {caseId} userRole={$auth.user?.role} />
+
+      <!-- AUDIT TIMELINE TAB -->
+      {:else if activeTab === 'timeline'}
+        <div class="timeline-section">
+          <div class="section-header-row">
+            <h2>Immutable Investigation Audit Trail</h2>
+            <span class="mono-meta">{timeline.length} events recorded</span>
+          </div>
+          {#if timeline.length === 0}
+            <div class="empty-state">No audit events recorded for this case yet.</div>
+          {:else}
+            <div class="timeline-list">
+              {#each timeline as event}
+                <div class="timeline-event">
+                  <div class="event-connector">
+                    <div class="event-dot"></div>
+                    <div class="event-line"></div>
+                  </div>
+                  <div class="event-body">
+                    <div class="event-header-row">
+                      <span class="event-action font-mono">{event.action}</span>
+                      <span class="event-time font-mono">{formatDate(event.timestamp)}</span>
+                    </div>
+                    <div class="event-actor">
+                      Actor: <strong>{event.actorId?.name || 'System'}</strong>
+                      {#if event.actorId?.role}
+                        <span class="role-pill">{event.actorId.role.toUpperCase()}</span>
+                      {/if}
+                    </div>
+                    {#if event.metadata && Object.keys(event.metadata).length > 0}
+                      <details class="event-meta-details">
+                        <summary class="font-mono">Metadata</summary>
+                        <pre class="meta-json font-mono">{JSON.stringify(event.metadata, null, 2)}</pre>
+                      </details>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+      <!-- REPORT TAB -->
+      {:else if activeTab === 'report'}
+        <div class="report-section">
+          <div class="section-header-row">
+            <h2>Generated Forensic Case Report</h2>
+            {#if report}
+              <a
+                href="/api/v1/cases/{caseId}/report/download"
+                target="_blank"
+                class="btn btn-secondary btn-sm"
+              >
+                ⬇ Download Markdown
+              </a>
+            {/if}
+          </div>
+          {#if reportLoading}
+            <div class="loading-workspace">
+              <div class="spinner"></div>
+              <p class="font-mono">Generating cryptographic integrity report...</p>
+            </div>
+          {:else if reportError}
+            <div class="alert-banner">{reportError}</div>
+          {:else if report}
+            <div class="report-summary-grid">
+              <div class="report-stat">
+                <span class="report-stat-val">{report.evidenceSummary?.total ?? 0}</span>
+                <span class="report-stat-label">Evidence Items</span>
+              </div>
+              <div class="report-stat">
+                <span class="report-stat-val">{report.evidenceSummary?.verified ?? 0}</span>
+                <span class="report-stat-label">Verified</span>
+              </div>
+              <div class="report-stat">
+                <span class="report-stat-val">{report.hypotheses?.length ?? 0}</span>
+                <span class="report-stat-label">Hypotheses</span>
+              </div>
+              <div class="report-stat">
+                <span class="report-stat-val">{report.auditLogs?.length ?? 0}</span>
+                <span class="report-stat-label">Audit Events</span>
+              </div>
+            </div>
+            <div class="report-evidence-table">
+              <h3 class="report-section-heading">Evidence Integrity Register</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>SHA-256 Hash</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each (report.evidenceSummary?.items || []) as e}
+                    <tr>
+                      <td>{e.title}</td>
+                      <td class="font-mono">{e.type}</td>
+                      <td>
+                        <span class="status-badge badge-{e.verificationStatus}">
+                          {e.verificationStatus.toUpperCase()}
+                        </span>
+                      </td>
+                      <td class="font-mono hash-cell" title={e.fileHash}>
+                        {e.fileHash ? e.fileHash.slice(0, 16) + '...' : 'N/A'}
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {:else}
+            <div class="empty-state">
+              <p>Click the "Case Report" tab to generate the forensic report.</p>
+              <button class="btn btn-primary btn-sm" style="margin-top: 0.75rem;" on:click={loadReport}>
+                Generate Report
+              </button>
+            </div>
+          {/if}
+        </div>
+
+      <!-- AI INVESTIGATOR TAB -->
+      {:else if activeTab === 'ai'}
+        <div class="ai-tab-section">
+          {#if aiBrief}
+            <div class="ai-tab-brief">
+              <div class="ai-tab-header">
+                <div class="ai-badge-row">
+                  <span class="ai-live-badge">AI ACTIVE</span>
+                  <span class="font-mono" style="font-size: 0.75rem; color: var(--text-muted);">
+                    Disclaimer: {aiBrief.disclaimer}
+                  </span>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.5rem;">
+                  Use the <strong>AI Investigator drawer</strong> (top bar button) for multi-turn forensic analysis on this case. The brief below summarizes the current investigation status.
+                </p>
+              </div>
+              <div class="ai-metrics-row">
+                <div class="ai-metric">
+                  <span class="ai-metric-val">{aiBrief.metrics?.totalEvidence ?? 0}</span>
+                  <span class="ai-metric-label">Total Evidence</span>
+                </div>
+                <div class="ai-metric">
+                  <span class="ai-metric-val ai-val-success">{aiBrief.metrics?.verifiedCount ?? 0}</span>
+                  <span class="ai-metric-label">Verified</span>
+                </div>
+                <div class="ai-metric">
+                  <span class="ai-metric-val ai-val-warn">{aiBrief.metrics?.unverifiedCount ?? 0}</span>
+                  <span class="ai-metric-label">Pending Verification</span>
+                </div>
+                <div class="ai-metric">
+                  <span class="ai-metric-val">{aiBrief.metrics?.hypothesisCount ?? 0}</span>
+                  <span class="ai-metric-label">Active Hypotheses</span>
+                </div>
+                <div class="ai-metric">
+                  <span class="ai-metric-val ai-val-success">{aiBrief.metrics?.leadingConfidence?.toFixed(1) ?? '50.0'}%</span>
+                  <span class="ai-metric-label">Leading Confidence</span>
+                </div>
+                {#if aiBrief.metrics?.conflictCount > 0}
+                  <div class="ai-metric">
+                    <span class="ai-metric-val ai-val-danger">{aiBrief.metrics.conflictCount}</span>
+                    <span class="ai-metric-label">Evidence Conflicts</span>
+                  </div>
+                {/if}
+              </div>
+              <div class="ai-brief-bullets">
+                <h4>AI Analysis Bullets</h4>
+                <ul class="ai-bullets">
+                  {#each aiBrief.summaryBullets as bullet}
+                    <li>{bullet}</li>
+                  {/each}
+                </ul>
+              </div>
+            </div>
+          {:else}
+            <div class="empty-state">
+              <p>AI brief is loading or unavailable.</p>
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
+<!-- ===== TRANSITION REASON MODAL ===== -->
+{#if showReasonModal}
+  <div
+    class="modal-backdrop"
+    role="presentation"
+    on:click|self={() => { showReasonModal = false; }}
+    on:keydown={(e) => e.key === 'Escape' && (showReasonModal = false)}
+  >
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>{selectedActionLabel}</h3>
+        <button class="close-btn" on:click={() => { showReasonModal = false; }}>✕</button>
       </div>
-    {:else if activeTab === 'hypotheses'}
-      <HypothesisPanel {caseId} />
-    {:else if activeTab === 'graph'}
-      <RelationshipGraph {caseId} />
-    {/if}
-  {/if}
-
-  <!-- Mandatory Reason Modal -->
-  {#if showReasonModal}
-    <div
-      class="modal-backdrop"
-      role="presentation"
-      on:click|self={() => (showReasonModal = false)}
-      on:keydown={(e) => e.key === 'Escape' && (showReasonModal = false)}
-    >
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3>Document Required Reason</h3>
-          <button class="close-btn" on:click={() => (showReasonModal = false)}>✕</button>
-        </div>
-
-        <p class="modal-note">
-          Per operating procedure, transition <strong>{selectedActionLabel}</strong> strictly requires a documented rationale written to the immutable audit trail.
-        </p>
-
+      <div class="modal-body">
+        <label for="reason-input" class="form-label">
+          Justification / Reason <span class="required">*</span>
+        </label>
+        <textarea
+          id="reason-input"
+          class="form-textarea"
+          rows="4"
+          bind:value={transitionReason}
+          placeholder="Provide a detailed justification for this status transition..."
+        ></textarea>
         {#if transitionError}
-          <div class="alert alert-danger" style="margin: 1rem 0;">{transitionError}</div>
+          <div class="form-error">{transitionError}</div>
         {/if}
-
-        <form on:submit|preventDefault={() => executeTransition(selectedTargetStatus, transitionReason)}>
-          <div class="form-group">
-            <label for="transReason">Action Rationale / Reopening Justification</label>
-            <textarea
-              id="transReason"
-              bind:value={transitionReason}
-              rows="4"
-              placeholder="State the findings, additional evidence, or regulatory reason..."
-              required
-              class="form-input"
-            ></textarea>
-          </div>
-
-          <div class="modal-actions" style="margin-top: 1rem;">
-            <button type="button" class="btn btn-secondary" on:click={() => (showReasonModal = false)}>
-              Cancel
-            </button>
-            <button type="submit" class="btn btn-primary" disabled={transitioning || !transitionReason.trim()}>
-              {transitioning ? 'Executing...' : 'Confirm & Log Transition'}
-            </button>
-          </div>
-        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" on:click={() => { showReasonModal = false; }}>Cancel</button>
+        <button
+          class="btn btn-primary"
+          disabled={transitioning || transitionReason.trim().length < 5}
+          on:click={() => executeTransition(selectedTargetStatus, transitionReason.trim())}
+        >
+          {transitioning ? 'Processing...' : 'Confirm Transition'}
+        </button>
       </div>
     </div>
-  {/if}
-</div>
+  </div>
+{/if}
 
 <style>
-  .case-workspace {
+  .workspace {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 0;
+    max-width: 1200px;
+    margin: 0 auto;
   }
 
-  .breadcrumb {
+  /* ===== HEADER ===== */
+  .case-header {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .case-breadcrumb {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     font-size: 0.8125rem;
-    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
   }
 
   .crumb-link {
@@ -325,202 +628,455 @@
     text-decoration: none;
   }
 
-  .crumb-sep {
-    color: var(--text-muted);
-  }
+  .crumb-link:hover { text-decoration: underline; }
+  .crumb-sep { color: var(--text-muted); }
+  .crumb-current { color: var(--text-secondary); }
 
-  .crumb-current {
-    color: var(--text-secondary);
-  }
-
-  .header-main {
+  .case-header-main {
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: flex-start;
+    gap: 1.5rem;
     flex-wrap: wrap;
-    gap: 1rem;
-    border-bottom: 1px solid var(--border-color);
-    padding-bottom: 1.25rem;
+    margin-bottom: 1.5rem;
   }
 
-  .badges-row {
+  .badge-row {
     display: flex;
+    align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.5rem;
+    flex-wrap: wrap;
   }
 
-  .title-block h1 {
-    font-size: 1.75rem;
-    font-weight: 800;
-  }
-
-  .lifecycle-actions {
-    display: flex;
-    gap: 0.75rem;
-  }
-
-  .btn-action {
-    background-color: var(--accent-blue);
-    color: white;
-    font-weight: 600;
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    border: none;
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-  }
-
-  .btn-action:hover {
-    background-color: var(--accent-blue-hover);
-  }
-
-  .no-actions-badge {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    background-color: var(--bg-card);
-    padding: 0.4rem 0.75rem;
-    border-radius: 4px;
+  .priority-chip {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    padding: 0.2rem 0.55rem;
+    border-radius: 5px;
+    letter-spacing: 0.05em;
+    background-color: var(--bg-elevated);
+    color: var(--text-secondary);
     border: 1px solid var(--border-color);
   }
 
+  .priority-high { color: var(--color-danger); border-color: rgba(248, 81, 73, 0.4); background-color: rgba(248, 81, 73, 0.1); }
+  .priority-medium { color: var(--color-warning); border-color: rgba(210, 153, 34, 0.4); background-color: rgba(210, 153, 34, 0.1); }
+  .priority-low { color: var(--color-success); border-color: rgba(63, 185, 80, 0.4); background-color: rgba(63, 185, 80, 0.1); }
+
+  .meta-chip {
+    font-size: 0.6875rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 5px;
+    background-color: var(--bg-elevated);
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+  }
+
+  .case-title {
+    font-size: 1.75rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    line-height: 1.2;
+    margin-bottom: 0.4rem;
+  }
+
+  .case-meta-row {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .case-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .no-transitions {
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+  }
+
+  /* Lifecycle Stepper */
+  .lifecycle-stepper {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .step-circle {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border: 2px solid var(--border-color);
+    background-color: var(--bg-primary);
+    color: var(--text-muted);
+  }
+
+  .step-done .step-circle {
+    background-color: rgba(63, 185, 80, 0.2);
+    border-color: var(--color-success);
+    color: var(--color-success);
+  }
+
+  .step-current .step-circle {
+    background-color: rgba(0, 229, 255, 0.15);
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+  }
+
+  .step-label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .step-done .step-label { color: var(--color-success); }
+  .step-current .step-label { color: var(--accent-cyan); }
+
+  .step-connector {
+    flex: 1;
+    height: 2px;
+    background-color: var(--border-color);
+    margin-bottom: 1rem;
+    min-width: 24px;
+  }
+
+  .step-connector-done { background-color: var(--color-success); }
+  .step-connector-current { background: linear-gradient(to right, var(--color-success) 50%, var(--border-color) 50%); }
+
+  /* ===== TABS ===== */
   .workspace-tabs {
     display: flex;
-    gap: 0.5rem;
+    gap: 0;
     border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
   }
 
   .tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.75rem 1rem;
     background: none;
     border: none;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-    font-weight: 600;
-    padding: 0.6rem 1rem;
-    cursor: pointer;
     border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
     transition: all 0.15s ease;
   }
 
   .tab-btn:hover {
-    color: var(--text-primary);
+    color: var(--text-secondary);
   }
 
-  .tab-btn.active {
+  .tab-active {
+    color: var(--accent-cyan) !important;
+    border-bottom-color: var(--accent-cyan) !important;
+    font-weight: 600;
+  }
+
+  .tab-count {
+    font-size: 0.6875rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 10px;
+    background-color: var(--bg-elevated);
+    color: var(--text-secondary);
+  }
+
+  .tab-ai-pill {
+    font-size: 0.5625rem;
+    font-weight: 800;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    background-color: rgba(0, 229, 255, 0.15);
     color: var(--accent-cyan);
-    border-bottom-color: var(--accent-cyan);
+    border: 1px solid rgba(0, 229, 255, 0.4);
+    letter-spacing: 0.03em;
   }
 
-  .info-grid {
+  /* ===== OVERVIEW TAB ===== */
+  .overview-grid {
     display: grid;
-    grid-template-columns: 320px 1fr;
-    gap: 1.5rem;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
   }
 
-  @media (max-width: 860px) {
-    .info-grid {
-      grid-template-columns: 1fr;
-    }
+  @media (max-width: 820px) {
+    .overview-grid { grid-template-columns: 1fr; }
   }
 
   .card {
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 10px;
     padding: 1.25rem;
   }
 
-  .meta-panel h3, .timeline-panel h3 {
-    font-size: 1rem;
+  .card-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .card-title-row h3 {
+    font-size: 0.9375rem;
     font-weight: 700;
+  }
+
+  .overview-desc-card {
+    grid-column: 1 / -1;
+  }
+
+  .desc-text {
+    color: var(--text-secondary);
+    font-size: 0.9375rem;
+    line-height: 1.6;
     margin-bottom: 0.75rem;
   }
 
-  .case-full-desc {
+  .tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+  }
+
+  .tag-chip {
+    font-size: 0.6875rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    background-color: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+  }
+
+  /* Personnel */
+  .personnel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .personnel-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    padding: 0.625rem;
+    border-radius: 6px;
+    background-color: var(--bg-primary);
+  }
+
+  .personnel-role {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--accent-cyan);
+    text-transform: uppercase;
+  }
+
+  .personnel-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .personnel-email {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  /* AI Brief Card */
+  .ai-brief-card {
+    grid-column: 1 / -1;
+    border-color: rgba(0, 229, 255, 0.25);
+    background-color: rgba(0, 229, 255, 0.03);
+  }
+
+  .ai-title-row { }
+
+  .ai-model-badge {
+    font-size: 0.625rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    background-color: var(--bg-elevated);
+    color: var(--text-muted);
+  }
+
+  .ai-metrics-row {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background-color: var(--bg-primary);
+    border-radius: 6px;
+  }
+
+  .ai-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    align-items: center;
+  }
+
+  .ai-metric-val {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1;
+  }
+
+  .ai-val-success { color: var(--color-success); }
+  .ai-val-warn    { color: var(--color-warning); }
+  .ai-val-danger  { color: var(--color-danger); }
+
+  .ai-metric-label {
+    font-size: 0.625rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    text-align: center;
+  }
+
+  .ai-bullets {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .ai-bullets li {
     font-size: 0.875rem;
     color: var(--text-secondary);
-    line-height: 1.6;
+    padding-left: 1rem;
+    position: relative;
+    line-height: 1.5;
+  }
+
+  .ai-bullets li::before {
+    content: '›';
+    position: absolute;
+    left: 0;
+    color: var(--accent-cyan);
+    font-weight: 700;
+  }
+
+  .ai-disclaimer {
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+  }
+
+  /* ===== TIMELINE TAB ===== */
+  .timeline-section, .report-section, .ai-tab-section {
+    max-width: 900px;
+  }
+
+  .section-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-bottom: 1.5rem;
   }
 
-  .team-section {
-    border-top: 1px solid var(--border-color);
-    padding-top: 1rem;
-  }
-
-  .team-section h4 {
-    font-size: 0.8125rem;
+  .section-header-row h2 {
+    font-size: 1.125rem;
     font-weight: 700;
+  }
+
+  .mono-meta {
+    font-size: 0.75rem;
     color: var(--text-muted);
-    margin-bottom: 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-family: var(--font-mono);
   }
 
-  .person-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.8125rem;
-    padding: 0.35rem 0;
-  }
-
-  .role-tag {
-    color: var(--text-muted);
-  }
-
-  .person-name {
-    color: var(--text-primary);
-    font-weight: 500;
-  }
-
-  /* Timeline */
   .timeline-list {
-    position: relative;
-    padding-left: 1.5rem;
-    border-left: 2px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
-    margin-top: 1rem;
   }
 
-  .timeline-item {
-    position: relative;
+  .timeline-event {
+    display: flex;
+    gap: 1rem;
   }
 
-  .timeline-marker {
-    position: absolute;
-    left: -1.95rem;
-    top: 0.25rem;
+  .event-connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .event-dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background-color: var(--accent-blue);
+    background-color: var(--accent-cyan);
     border: 2px solid var(--bg-primary);
+    flex-shrink: 0;
+    margin-top: 0.2rem;
   }
 
-  .timeline-content {
-    background-color: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 0.875rem 1rem;
+  .event-line {
+    width: 2px;
+    flex: 1;
+    background-color: var(--border-color);
+    margin-top: 4px;
+    min-height: 32px;
   }
 
-  .event-header {
+  .event-body {
+    flex: 1;
+    padding-bottom: 1.25rem;
+  }
+
+  .event-header-row {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.35rem;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.25rem;
   }
 
   .event-action {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     font-weight: 700;
     color: var(--accent-cyan);
+    letter-spacing: 0.03em;
   }
 
   .event-time {
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     color: var(--text-muted);
   }
 
@@ -529,86 +1085,218 @@
     color: var(--text-secondary);
   }
 
-  .event-reason {
+  .role-pill {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    background-color: var(--bg-elevated);
+    color: var(--text-muted);
+    margin-left: 0.35rem;
+  }
+
+  .event-meta-details {
     margin-top: 0.5rem;
-    padding: 0.5rem;
+  }
+
+  .event-meta-details summary {
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .meta-json {
+    font-size: 0.6875rem;
+    color: var(--text-secondary);
     background-color: var(--bg-primary);
-    border-left: 3px solid var(--accent-blue);
-    border-radius: 4px;
-    font-size: 0.8125rem;
+    padding: 0.625rem;
+    border-radius: 6px;
+    margin-top: 0.35rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+
+  /* ===== REPORT TAB ===== */
+  .report-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .report-stat {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+  }
+
+  .report-stat-val {
+    display: block;
+    font-size: 1.75rem;
+    font-weight: 800;
     color: var(--text-primary);
   }
 
-  .track-placeholder {
-    text-align: center;
-    padding: 4rem 2rem;
+  .report-stat-label {
+    display: block;
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
   }
 
-  .placeholder-icon {
-    font-size: 2.5rem;
+  .report-section-heading {
+    font-size: 0.9375rem;
+    font-weight: 700;
     margin-bottom: 0.75rem;
   }
 
-  .status-badge {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-  }
-
-  .priority-badge {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
+  .report-evidence-table {
     background-color: var(--bg-card);
-    color: var(--text-secondary);
     border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 1.25rem;
+    overflow-x: auto;
   }
 
-  .badge-draft { background: rgba(156, 163, 175, 0.15); color: #9ca3af; border: 1px solid rgba(156, 163, 175, 0.3); }
-  .badge-active { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
-  .badge-review { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-  .badge-closed { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-  .badge-archived { background: rgba(107, 114, 128, 0.15); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.3); }
-
-  .font-mono {
-    font-family: var(--font-mono);
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
   }
 
+  th {
+    text-align: left;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  td {
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+    vertical-align: middle;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  .hash-cell {
+    font-size: 0.6875rem;
+    color: var(--accent-cyan);
+  }
+
+  /* ===== AI TAB ===== */
+  .ai-tab-brief {
+    background-color: var(--bg-card);
+    border: 1px solid rgba(0, 229, 255, 0.25);
+    border-radius: 10px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .ai-tab-header { }
+
+  .ai-badge-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .ai-live-badge {
+    font-size: 0.5625rem;
+    font-weight: 800;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    background-color: rgba(0, 229, 255, 0.2);
+    color: var(--accent-cyan);
+    border: 1px solid rgba(0, 229, 255, 0.5);
+    letter-spacing: 0.06em;
+  }
+
+  .ai-brief-bullets h4 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+  }
+
+  /* ===== COMMON ===== */
+  .alert-banner {
+    background-color: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.4);
+    color: var(--color-danger);
+    padding: 1rem 1.25rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+  }
+
+  .loading-workspace {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 4rem 2rem;
+    color: var(--text-muted);
+  }
+
+  .spinner {
+    width: 28px;
+    height: 28px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--accent-cyan);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1.5rem;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+  }
+
+  /* ===== TRANSITION MODAL ===== */
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    background-color: rgba(0, 0, 0, 0.75);
+    background-color: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(4px);
+    z-index: 9999;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
     padding: 1.5rem;
   }
 
-  .modal-card {
+  .modal-box {
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: 12px;
     width: 100%;
-    max-width: 500px;
-    padding: 1.75rem;
-    box-shadow: 0 15px 30px rgba(0,0,0,0.5);
+    max-width: 520px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
   }
 
   .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.75rem;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border-color);
   }
 
-  .modal-note {
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-    margin-bottom: 1rem;
-  }
+  .modal-header h3 { font-size: 1rem; font-weight: 700; }
 
   .close-btn {
     background: none;
@@ -618,32 +1306,43 @@
     cursor: pointer;
   }
 
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-  }
-
-  .form-group label {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-  }
-
-  .form-input {
-    background-color: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
-    padding: 0.6rem 0.75rem;
-    border-radius: 6px;
-    font-size: 0.875rem;
-    outline: none;
-    font-family: inherit;
-  }
-
-  .modal-actions {
+  .modal-body { padding: 1.25rem 1.5rem; }
+  .modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color);
     display: flex;
     justify-content: flex-end;
     gap: 0.75rem;
+  }
+
+  .form-label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+  }
+
+  .required { color: var(--color-danger); }
+
+  .form-textarea {
+    width: 100%;
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 0.75rem;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.875rem;
+    resize: vertical;
+    outline: none;
+  }
+
+  .form-textarea:focus { border-color: var(--accent-cyan); }
+
+  .form-error {
+    color: var(--color-danger);
+    font-size: 0.8125rem;
+    margin-top: 0.5rem;
   }
 </style>

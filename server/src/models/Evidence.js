@@ -99,7 +99,37 @@ const evidenceSchema = new mongoose.Schema(
         type: String,
         trim: true
       }
-    ]
+    ],
+    // Forensic Cryptographic Integrity Fields
+    fileHash: {
+      type: String,
+      trim: true,
+      default: null
+    },
+    hashAlgorithm: {
+      type: String,
+      default: 'SHA-256'
+    },
+    hashVerified: {
+      type: Boolean,
+      default: true
+    },
+    hashVerifiedAt: {
+      type: Date,
+      default: Date.now
+    },
+    fileSizeBytes: {
+      type: Number,
+      default: 0
+    },
+    fileMimetype: {
+      type: String,
+      default: null
+    },
+    originalFilename: {
+      type: String,
+      default: null
+    }
   },
   {
     timestamps: true,

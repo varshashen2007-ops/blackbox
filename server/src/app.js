@@ -9,6 +9,9 @@ import { errorHandler, AppError } from './middleware/errorHandler.js';
 import authRoutes from './routes/auth.routes.js';
 import caseRoutes from './routes/case.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import searchRoutes from './routes/search.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
+import googleAuthRoutes from './routes/googleAuth.routes.js';
 
 export function createApp() {
   const app = express();
@@ -56,9 +59,12 @@ export function createApp() {
   });
 
   // Mount API Routers
+  app.use('/api/v1/auth/google', googleAuthRoutes);
   app.use('/api/v1/auth', authLimiter, authRoutes);
   app.use('/api/v1/cases', caseRoutes);
   app.use('/api/v1/admin', adminRoutes);
+  app.use('/api/v1/search', searchRoutes);
+  app.use('/api/v1/notifications', notificationRoutes);
 
   // 404 Handler for undefined API routes
   app.use('/api/*', (req, res, next) => {

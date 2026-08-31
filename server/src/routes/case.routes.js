@@ -3,6 +3,7 @@ import * as caseController from '../controllers/case.controller.js';
 import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/auth.js';
 import { requireRole } from '../middleware/rbac.js';
+import { requireCaseAccess } from '../middleware/caseAccess.js';
 import {
   createCaseSchema,
   updateCaseSchema,
@@ -12,17 +13,22 @@ import {
 import evidenceRoutes from './evidence.routes.js';
 import hypothesisRoutes from './hypothesis.routes.js';
 import relationshipRoutes from './relationship.routes.js';
+import aiRoutes from './ai.routes.js';
+import reportRoutes from './report.routes.js';
 
 const router = Router();
-
-// Sub-resource routers
-router.use('/:caseId/evidence', evidenceRoutes);
-router.use('/:caseId/hypotheses', hypothesisRoutes);
-router.use('/:caseId/relationships', relationshipRoutes);
 
 // All case routes require authentication
 router.use(authenticate);
 
+// Sub-resource routers protected with case-level authorization
+router.use('/:caseId/evidence', requireCaseAccess, evidenceRoutes);
+router.use('/:caseId/hypotheses', requireCaseAccess, hypothesisRoutes);
+router.use('/:caseId/relationships', requireCaseAccess, relationshipRoutes);
+router.use('/:caseId/ai', requireCaseAccess, aiRoutes);
+router.use('/:caseId/report', requireCaseAccess, reportRoutes);
+
+// Base Case Endpoints
 router.get('/', validate(queryCasesSchema, 'query'), caseController.getCases);
 router.post(
   '/',
@@ -31,9 +37,10 @@ router.post(
   caseController.createCase
 );
 
-router.get('/:id', caseController.getCaseById);
+router.get('/:id', requireCaseAccess, caseController.getCaseById);
 router.patch(
   '/:id',
+  requireCaseAccess,
   requireRole('investigator', 'supervisor'),
   validate(updateCaseSchema),
   caseController.updateCase
@@ -41,10 +48,11 @@ router.patch(
 
 router.post(
   '/:id/transition',
+  requireCaseAccess,
   validate(transitionCaseSchema),
   caseController.transitionCase
 );
 
-router.get('/:id/timeline', caseController.getCaseTimeline);
+router.get('/:id/timeline', requireCaseAccess, caseController.getCaseTimeline);
 
 export default router;
