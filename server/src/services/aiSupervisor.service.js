@@ -52,6 +52,7 @@ export async function buildCaseAIContext(caseId, user) {
       description: h.description,
       status: h.status,
       confidenceScore: analysis.confidenceScore,
+      previousConfidence: h.confidenceScore,
       breakdown: analysis.breakdown.map((b) => ({
         evidenceId: b.evidenceId ? b.evidenceId.toString() : null,
         title: b.title,
@@ -117,13 +118,26 @@ export async function buildCaseAIContext(caseId, user) {
 }
 
 /**
- * Executes Automated AI Supervisor Review
+ * Executes Automated AI Supervisor Review.
+ * Can be triggered automatically (via case lifecycle transition) or manually (re-run).
+ * @param {Object} params
+ * @param {string} params.caseId
+ * @param {Object} params.user - The user who initiated (or whose transition triggered) the review
+ * @param {string} params.ipAddress
+ * @param {string} [params.actorType='AI_SUPERVISOR'] - Actor type for audit trail
+ * @param {boolean} [params.autoTriggered=false] - Whether this was auto-triggered by lifecycle
  */
-export async function runAiSupervisorReview({ caseId, user, ipAddress = 'unknown' }) {
+export async function runAiSupervisorReview({ caseId, user, ipAddress = 'unknown', actorType = 'AI_SUPERVISOR', autoTriggered = false }) {
   const caseDoc = await Case.findById(caseId);
   if (!caseDoc) {
     throw new AppError('Case not found', 404, 'NOT_FOUND');
   }
+
+  const auditMeta = {
+    triggeredBy: user.email || user._id?.toString(),
+    actorType,
+    autoTriggered
+  };
 
   // 1. Audit Review Initiation
   await logAudit({
@@ -132,7 +146,7 @@ export async function runAiSupervisorReview({ caseId, user, ipAddress = 'unknown
     entityType: 'Case',
     entityId: caseId,
     caseId,
-    metadata: { triggeredBy: user.email },
+    metadata: { ...auditMeta },
     ipAddress
   });
 
@@ -176,16 +190,54 @@ export async function runAiSupervisorReview({ caseId, user, ipAddress = 'unknown
     await ev.save();
   }
 
+  // Audit evidence assessment
+  await logAudit({
+    actorId: user._id,
+    action: 'AI_EVIDENCE_ASSESSED',
+    entityType: 'Case',
+    entityId: caseId,
+    caseId,
+    metadata: {
+      actorType,
+      totalEvidence: evidenceList.length,
+      integrityPassedCount
+    },
+    ipAddress
+  });
+
   // Recompute deterministic confidence scores
   await recomputeAllHypothesesForCase(caseId);
 
+  // Capture pre-review hypothesis scores for change tracking
+  const preReviewHypotheses = await Hypothesis.find({ caseId }).lean();
+  const preScores = {};
+  for (const h of preReviewHypotheses) {
+    preScores[h._id.toString()] = h.confidenceScore;
+  }
+
   // 3. Build Authorized Sanitized Context
   const context = await buildCaseAIContext(caseId, user);
+
+  // Audit hypothesis assessment
+  await logAudit({
+    actorId: user._id,
+    action: 'AI_HYPOTHESIS_ASSESSED',
+    entityType: 'Case',
+    entityId: caseId,
+    caseId,
+    metadata: {
+      actorType,
+      hypothesisCount: context.hypotheses.length,
+      hypotheses: context.hypotheses.map(h => ({ id: h.id, title: h.title, confidence: h.confidenceScore }))
+    },
+    ipAddress
+  });
 
   // 4. Attempt Structured Review via Groq AI (or Fallback Engine)
   let rawReviewData = null;
   let modelProvider = 'groq';
   let modelName = 'llama-3.3-70b-versatile';
+  let reviewFailed = false;
 
   const groqApiKey = process.env.GROQ_API_KEY;
 
@@ -200,7 +252,7 @@ export async function runAiSupervisorReview({ caseId, user, ipAddress = 'unknown
         entityType: 'Case',
         entityId: caseId,
         caseId,
-        metadata: { error: err.message, reason: 'Groq API failure, using deterministic fallback' },
+        metadata: { error: err.message, reason: 'Groq API failure, attempting deterministic fallback', actorType },
         ipAddress
       });
     }
@@ -209,29 +261,85 @@ export async function runAiSupervisorReview({ caseId, user, ipAddress = 'unknown
   if (!rawReviewData) {
     modelProvider = 'blackbox-forensic-engine';
     modelName = 'blackbox-deterministic-v1';
-    rawReviewData = generateDeterministicAiReview(context);
+    try {
+      rawReviewData = generateDeterministicAiReview(context);
+    } catch (fallbackErr) {
+      console.error('[AI Supervisor] Deterministic fallback also failed:', fallbackErr.message);
+      reviewFailed = true;
+    }
   }
 
   // 5. Validate Review Structure with Zod Schema
   let parsedReview = null;
-  try {
-    parsedReview = aiSupervisorReviewSchema.parse(rawReviewData);
-  } catch (schemaErr) {
-    console.error('[AI Supervisor] Schema validation failed for AI response:', schemaErr.message);
+  if (!reviewFailed && rawReviewData) {
+    try {
+      parsedReview = aiSupervisorReviewSchema.parse(rawReviewData);
+    } catch (schemaErr) {
+      console.error('[AI Supervisor] Schema validation failed for AI response:', schemaErr.message);
+      await logAudit({
+        actorId: user._id,
+        action: 'AI_REVIEW_FAILED',
+        entityType: 'Case',
+        entityId: caseId,
+        caseId,
+        metadata: { error: 'Malformed AI response JSON schema', actorType },
+        ipAddress
+      });
+      // Fall back to guaranteed valid deterministic review
+      try {
+        rawReviewData = generateDeterministicAiReview(context);
+        parsedReview = aiSupervisorReviewSchema.parse(rawReviewData);
+        modelProvider = 'blackbox-forensic-engine';
+        modelName = 'blackbox-deterministic-v1';
+      } catch {
+        reviewFailed = true;
+      }
+    }
+  }
+
+  // Handle total failure — create FAILED review record
+  if (reviewFailed || !parsedReview) {
+    const failedReview = await AiReview.create({
+      caseId,
+      status: 'failed',
+      decision: 'REQUIRES_ATTENTION',
+      caseAssessment: { status: 'AI_REVIEW_FAILED', confidence: 0, summary: 'AI review could not be completed.' },
+      evidenceAssessments: [],
+      hypothesisAssessments: [],
+      contradictions: [],
+      missingEvidence: [],
+      recommendations: ['Manual review required — automated analysis could not complete.'],
+      overallAssessment: 'AI Supervisor review failed. Both Groq and deterministic fallback engines were unable to produce a valid review. Manual inspection required.',
+      confidenceExplanation: '',
+      deterministicMetrics: {
+        totalEvidence: evidenceList.length,
+        verifiedCount: 0,
+        unverifiedCount: evidenceList.length,
+        rejectedCount: 0,
+        hypothesisCount: context.hypotheses.length,
+        leadingHypothesisId: null,
+        leadingConfidence: 50.0,
+        conflictCount: 0,
+        integrityPassedCount
+      },
+      modelProvider: 'none',
+      modelName: 'none',
+      reviewVersion: 1,
+      triggeredBy: user._id,
+      actorType
+    });
+
     await logAudit({
       actorId: user._id,
       action: 'AI_REVIEW_FAILED',
-      entityType: 'Case',
-      entityId: caseId,
+      entityType: 'AiReview',
+      entityId: failedReview._id,
       caseId,
-      metadata: { error: 'Malformed AI response JSON schema' },
+      metadata: { decision: 'REQUIRES_ATTENTION', actorType, reason: 'Complete review failure' },
       ipAddress
     });
-    // Fall back to guaranteed valid deterministic review
-    rawReviewData = generateDeterministicAiReview(context);
-    parsedReview = aiSupervisorReviewSchema.parse(rawReviewData);
-    modelProvider = 'blackbox-forensic-engine';
-    modelName = 'blackbox-deterministic-v1';
+
+    return failedReview;
   }
 
   // 6. Apply Permitted Automated Changes & Evaluate Decision
@@ -251,7 +359,7 @@ export async function runAiSupervisorReview({ caseId, user, ipAddress = 'unknown
         actorId: user._id,
         action: 'AI_REVIEWED',
         timestamp: new Date(),
-        note: `Automated analysis completed by ${modelName}. Integrity: ${evDoc.integrityStatus}.`
+        note: `Automated analysis completed by ${modelName}. Integrity: ${evDoc.integrityStatus}. Review engine: ${modelProvider}.`
       });
       await evDoc.save();
     }
@@ -259,6 +367,29 @@ export async function runAiSupervisorReview({ caseId, user, ipAddress = 'unknown
 
   // Re-run confidence calculation after evidence status update
   await recomputeAllHypothesesForCase(caseId);
+
+  // Audit hypothesis recalculation with change tracking
+  const postReviewHypotheses = await Hypothesis.find({ caseId }).lean();
+  const hypothesisChanges = postReviewHypotheses.map(h => ({
+    id: h._id.toString(),
+    title: h.title,
+    previousConfidence: preScores[h._id.toString()] ?? null,
+    newConfidence: h.confidenceScore,
+    changeReason: 'Post-AI-review evidence status update'
+  }));
+
+  await logAudit({
+    actorId: user._id,
+    action: 'AI_HYPOTHESIS_RECALCULATED',
+    entityType: 'Case',
+    entityId: caseId,
+    caseId,
+    metadata: {
+      actorType,
+      hypothesisChanges
+    },
+    ipAddress
+  });
 
   // Evaluate Deterministic Case Closure Readiness
   const updatedHypotheses = await Hypothesis.find({ caseId }).lean();
@@ -305,7 +436,8 @@ export async function runAiSupervisorReview({ caseId, user, ipAddress = 'unknown
     modelProvider,
     modelName,
     reviewVersion: 1,
-    triggeredBy: user._id
+    triggeredBy: user._id,
+    actorType
   });
 
   // 8. Log Completion Audit Events
@@ -319,8 +451,11 @@ export async function runAiSupervisorReview({ caseId, user, ipAddress = 'unknown
       decision,
       modelProvider,
       modelName,
+      actorType,
+      autoTriggered,
       evidenceCount: totalEvidence,
-      leadingConfidence: leadingHypothesis?.confidenceScore || 50.0
+      leadingConfidence: leadingHypothesis?.confidenceScore || 50.0,
+      reviewVersion: 1
     },
     ipAddress
   });
@@ -457,7 +592,7 @@ function generateDeterministicAiReview(context) {
     caseAssessment: {
       status: 'REVIEW_COMPLETE',
       confidence: leading ? leading.confidenceScore / 100 : 0.5,
-      summary: `Automated forensic review completed for Case '${context.case.title}'. ${context.evidence.length} evidence items and ${context.hypotheses.length} hypotheses analyzed.`
+      summary: `Automated forensic review completed for Case '${context.case.title}'. ${context.evidence.length} evidence items and ${context.hypotheses.length} hypotheses analyzed. Review engine: DETERMINISTIC FALLBACK.`
     },
     evidenceAssessments,
     hypothesisAssessments,
@@ -486,9 +621,10 @@ export async function getLatestAiReview(caseId) {
  * Dashboard stats & list of all AI reviews across cases
  */
 export async function getAiSupervisorDashboardStats() {
-  const [totalReviews, completedReviews, flaggedCount, recentReviews] = await Promise.all([
+  const [totalReviews, completedReviews, failedReviews, flaggedCount, recentReviews] = await Promise.all([
     AiReview.countDocuments(),
     AiReview.countDocuments({ status: 'completed' }),
+    AiReview.countDocuments({ status: 'failed' }),
     AiReview.countDocuments({ decision: { $in: ['REQUIRES_ATTENTION', 'REVIEW_BLOCKED'] } }),
     AiReview.find()
       .sort({ createdAt: -1 })
@@ -501,6 +637,7 @@ export async function getAiSupervisorDashboardStats() {
   return {
     totalReviews,
     completedReviews,
+    failedReviews,
     flaggedCount,
     recentReviews: recentReviews.map((r) => ({
       ...r,

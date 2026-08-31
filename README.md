@@ -186,8 +186,8 @@ blackbox/
 - `POST /api/v1/auth/login` — Authenticate credentials (triggers MFA challenge if active)
 - `POST /api/v1/auth/mfa/setup` — Generate TOTP secret & QR code
 - `POST /api/v1/auth/mfa/verify` — Confirm TOTP and activate MFA
-- `POST /api/v1/auth/mfa/challenge` — Verify TOTP code during login
-- `POST /api/v1/auth/google/verify` — Authenticate via Google ID Token
+- `GET /api/v1/auth/google` — Initiate server-side Google OAuth 2.0 / OIDC flow
+- `GET /api/v1/auth/google/callback` — Handle OAuth 2.0 authorization code callback
 - `GET /api/v1/auth/me` — Retrieve current authenticated user profile
 
 ### Cases & Lifecycle

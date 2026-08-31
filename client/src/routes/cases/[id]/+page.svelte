@@ -104,7 +104,7 @@
   function getActionLabel(targetStatus) {
     switch (targetStatus) {
       case 'active': return caseData?.status === 'closed' ? 'Reopen Case' : 'Activate Investigation';
-      case 'under_review': return 'Submit for Supervisor Review';
+      case 'under_review': return 'Submit for AI Review';
       case 'closed': return 'Approve Closure';
       case 'archived': return 'Archive Case Record';
       default: return `Transition to ${targetStatus}`;
@@ -545,15 +545,16 @@
               </p>
             </div>
             <button
-              class="btn btn-primary btn-sm flex items-center gap-2 font-mono"
+              class="btn btn-secondary btn-sm flex items-center gap-2 font-mono"
               on:click={runAiReview}
               disabled={aiReviewLoading}
+              title="Manually re-run the automated review analysis"
             >
               {#if aiReviewLoading}
                 <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                 Analyzing Case Files...
               {:else}
-                ⚡ Run Automated AI Review
+                🔄 Re-run AI Review
               {/if}
             </button>
           </div>
@@ -575,9 +576,23 @@
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
                   <span class="text-xs font-mono uppercase text-text-muted font-semibold">REVIEW DECISION:</span>
-                  <span class="px-3 py-1 rounded text-xs font-mono font-extrabold border bg-cyan-950 text-cyan-400 border-cyan-800">
-                    ● {aiReview.decision || 'REVIEW_COMPLETE'}
-                  </span>
+                  {#if aiReview.decision === 'READY_FOR_CLOSURE'}
+                    <span class="px-3 py-1 rounded text-xs font-mono font-extrabold border bg-emerald-950 text-emerald-400 border-emerald-800">
+                      ● READY FOR CLOSURE
+                    </span>
+                  {:else if aiReview.decision === 'REQUIRES_ATTENTION'}
+                    <span class="px-3 py-1 rounded text-xs font-mono font-extrabold border bg-amber-950 text-amber-400 border-amber-800">
+                      ⚠ REQUIRES ATTENTION
+                    </span>
+                  {:else if aiReview.decision === 'REVIEW_BLOCKED'}
+                    <span class="px-3 py-1 rounded text-xs font-mono font-extrabold border bg-red-950 text-red-400 border-red-800">
+                      ⛔ REVIEW BLOCKED
+                    </span>
+                  {:else}
+                    <span class="px-3 py-1 rounded text-xs font-mono font-extrabold border bg-cyan-950 text-cyan-400 border-cyan-800">
+                      ● REVIEW COMPLETE
+                    </span>
+                  {/if}
                 </div>
                 <span class="text-xs font-mono text-text-muted">
                   Model: {aiReview.modelName || 'Llama-3.3-70B'} ({aiReview.modelProvider || 'groq'})
@@ -707,9 +722,10 @@
             {/if}
           {:else}
             <div class="p-12 text-center text-text-muted font-mono space-y-3">
-              <p>No automated AI review has been generated for this case yet.</p>
-              <button class="btn btn-primary btn-sm" on:click={runAiReview}>
-                ⚡ Run Automated AI Review Now
+              <p>The AI Supervisor automatically executes when this case is transitioned to <strong>UNDER_REVIEW</strong>.</p>
+              <p class="text-xs text-text-secondary">You can also manually trigger an analysis below.</p>
+              <button class="btn btn-secondary btn-sm" on:click={runAiReview}>
+                🔄 Re-run AI Review Now
               </button>
             </div>
           {/if}

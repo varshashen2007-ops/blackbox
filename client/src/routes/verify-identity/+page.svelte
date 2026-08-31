@@ -4,65 +4,10 @@
   import { api } from '$lib/api/client.js';
   import { auth } from '$lib/stores/auth.js';
 
-  let googleConfigStatus = null;
-  let loading = true;
-  let verifyLoading = false;
-  let verifyError = null;
-  let verifySuccess = false;
+  const API_BASE = import.meta.env.PUBLIC_API_URL || 'http://localhost:5000/api/v1';
 
-  let googleScriptLoaded = false;
-
-  onMount(async () => {
-    try {
-      const res = await api.get('/auth/google/config');
-      if (res?.success) googleConfigStatus = res.data;
-    } catch { /* fail quietly */ }
-    finally { loading = false; }
-
-    // Load Google Identity Services script
-    if (!document.getElementById('google-identity-script')) {
-      const script = document.createElement('script');
-      script.id = 'google-identity-script';
-      script.src = 'https://accounts.google.com/gsi/client';
-      script.async = true;
-      script.defer = true;
-      script.onload = () => { googleScriptLoaded = true; };
-      document.head.appendChild(script);
-    }
-  });
-
-  async function handleCredentialResponse(response) {
-    verifyLoading = true;
-    verifyError = null;
-
-    try {
-      // Decode email from JWT (header.payload.sig)
-      const payload = JSON.parse(atob(response.credential.split('.')[1]));
-      const res = await api.post('/auth/google/verify', {
-        credential: response.credential,
-        email: payload.email,
-        name: payload.name
-      });
-
-      if (res?.success) {
-        auth.setUser(res.data.user);
-        localStorage.setItem('bb_access_token', res.data.tokens.accessToken);
-        if (res.data.tokens.refreshToken) {
-          localStorage.setItem('bb_refresh_token', res.data.tokens.refreshToken);
-        }
-        verifySuccess = true;
-        setTimeout(() => goto('/'), 1500);
-      }
-    } catch (err) {
-      verifyError = err.message || 'Google identity verification failed.';
-    } finally {
-      verifyLoading = false;
-    }
-  }
-
-  // Expose for GIS callback
-  if (typeof window !== 'undefined') {
-    window.handleGoogleCredentialResponse = handleCredentialResponse;
+  function handleGoogleOAuth() {
+    window.location.href = `${API_BASE}/auth/google`;
   }
 </script>
 
@@ -82,87 +27,38 @@
       </div>
       <div>
         <h1>Identity Verification</h1>
-        <p class="verify-sub">Verify your identity through Google to access the BlackBox investigation platform.</p>
+        <p class="verify-sub">Verify your investigator identity through Google OAuth 2.0 to access the BlackBox platform.</p>
       </div>
     </div>
 
-    {#if loading}
-      <div class="loading-box">
-        <div class="spinner"></div>
-        <p class="font-mono">Checking OAuth configuration...</p>
-      </div>
-    {:else if verifySuccess}
-      <div class="success-box">
-        <div class="success-icon">✓</div>
-        <h2>Identity Verified</h2>
-        <p>Google identity confirmed. Redirecting to investigation workstation...</p>
-      </div>
-    {:else if googleConfigStatus?.isConfigured === false}
-      <div class="unconfigured-box">
-        <div class="unc-badge font-mono">GOOGLE OAUTH: UNCONFIGURED</div>
-        <h2>Google OAuth Not Configured</h2>
-        <p>{googleConfigStatus.message}</p>
-        <div class="config-instructions">
-          <h4 class="font-mono">To enable, add to server/.env:</h4>
-          <pre class="code-block font-mono">GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret</pre>
-          <p style="font-size: 0.8125rem; color: var(--text-secondary); margin-top: 0.75rem;">
-            Obtain credentials from <strong>Google Cloud Console → APIs & Services → OAuth 2.0 Client IDs</strong>.
-          </p>
-        </div>
-        <div class="divider">
-          <span>or sign in with credentials</span>
-        </div>
-        <a href="/login" class="btn btn-primary" style="width: 100%; text-align: center;">
-          Sign In with BlackBox Credentials
-        </a>
-      </div>
-    {:else if googleConfigStatus?.isConfigured}
-      <div class="oauth-box">
-        <div class="oauth-active-badge font-mono">GOOGLE OAUTH: ACTIVE</div>
-        <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.5rem;">
-          Sign in with your Google account. Only verified accounts will be granted access.
-        </p>
+    <div class="oauth-box">
+      <div class="oauth-active-badge font-mono">SERVER-SIDE GOOGLE OAUTH 2.0 / OIDC</div>
+      <p style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.5;">
+        Click below to securely authenticate with your Google account. Your identity claims will be cryptographically verified server-side.
+      </p>
 
-        {#if verifyError}
-          <div class="error-box">{verifyError}</div>
-        {/if}
+      <button
+        type="button"
+        class="google-oauth-btn font-mono"
+        on:click={handleGoogleOAuth}
+      >
+        <svg class="google-icon" width="18" height="18" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        <span>Continue with Google</span>
+      </button>
 
-        <!-- Google One Tap Button -->
-        {#if googleConfigStatus.clientId}
-          <div
-            id="g_id_onload"
-            data-client_id={googleConfigStatus.clientId}
-            data-callback="handleGoogleCredentialResponse"
-            data-auto_prompt="false"
-          ></div>
-          <div
-            class="g_id_signin"
-            data-type="standard"
-            data-size="large"
-            data-theme="filled_black"
-            data-text="signin_with"
-            data-shape="rectangular"
-            data-logo_alignment="left"
-            style="width: 100%;"
-          ></div>
-        {/if}
+      <div class="divider">
+        <span>or</span>
+      </div>
 
-        <div class="divider">
-          <span>or</span>
-        </div>
-        <a href="/login" class="btn btn-secondary" style="width: 100%; text-align: center;">
-          Use BlackBox Investigator Credentials
-        </a>
-      </div>
-    {:else}
-      <div class="error-box">
-        Unable to determine Google OAuth configuration status. Please try again or use standard login.
-      </div>
-      <a href="/login" class="btn btn-primary" style="width: 100%; margin-top: 1rem; text-align: center;">
-        Standard Login
+      <a href="/login" class="btn btn-secondary" style="width: 100%; text-align: center;">
+        Return to Standard Login
       </a>
-    {/if}
+    </div>
 
     <div class="verify-footer">
       <p class="font-mono">BlackBox Identity Verification System</p>
@@ -225,51 +121,13 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret</pre>
     line-height: 1.5;
   }
 
-  .loading-box {
+  .oauth-box {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 2rem;
-    color: var(--text-muted);
-    font-size: 0.875rem;
+    gap: 1.25rem;
   }
 
-  .spinner {
-    width: 24px;
-    height: 24px;
-    border: 2px solid var(--border-color);
-    border-top-color: var(--accent-cyan);
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .success-box {
-    text-align: center;
-    padding: 2rem;
-    background-color: rgba(63, 185, 80, 0.1);
-    border: 1px solid rgba(63, 185, 80, 0.4);
-    border-radius: 8px;
-  }
-
-  .success-icon {
-    font-size: 3rem;
-    color: var(--color-success);
-    margin-bottom: 0.75rem;
-  }
-
-  .success-box h2 { color: var(--color-success); font-size: 1.25rem; }
-  .success-box p { color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.25rem; }
-
-  .unconfigured-box, .oauth-box {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .unc-badge, .oauth-active-badge {
+  .oauth-active-badge {
     font-size: 0.5625rem;
     font-weight: 800;
     letter-spacing: 0.06em;
@@ -277,42 +135,34 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret</pre>
     border-radius: 4px;
     display: inline-block;
     width: fit-content;
-  }
-
-  .unc-badge {
-    background-color: rgba(210, 153, 34, 0.15);
-    color: var(--color-warning);
-    border: 1px solid rgba(210, 153, 34, 0.4);
-  }
-
-  .oauth-active-badge {
     background-color: rgba(63, 185, 80, 0.15);
     color: var(--color-success);
     border: 1px solid rgba(63, 185, 80, 0.4);
   }
 
-  .config-instructions {
-    background-color: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 1rem;
-  }
-
-  .config-instructions h4 {
-    font-size: 0.6875rem;
-    color: var(--text-muted);
-    margin-bottom: 0.5rem;
-  }
-
-  .code-block {
-    background-color: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+  .google-oauth-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    background-color: #ffffff;
+    color: #1f2937;
+    border: 1px solid #d1d5db;
     border-radius: 6px;
-    padding: 0.75rem;
-    font-size: 0.75rem;
-    color: var(--accent-cyan);
-    white-space: pre;
-    overflow-x: auto;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+
+  .google-oauth-btn:hover {
+    background-color: #f3f4f6;
+    border-color: #9ca3af;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
   }
 
   .divider {
@@ -328,15 +178,6 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret</pre>
     flex: 1;
     height: 1px;
     background-color: var(--border-color);
-  }
-
-  .error-box {
-    background-color: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.4);
-    color: var(--color-danger);
-    padding: 0.75rem 1rem;
-    border-radius: 6px;
-    font-size: 0.8125rem;
   }
 
   .verify-footer {

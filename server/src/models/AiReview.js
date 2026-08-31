@@ -184,6 +184,11 @@ const aiReviewSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true
+    },
+    actorType: {
+      type: String,
+      enum: ['AI_SUPERVISOR', 'HUMAN', 'SYSTEM'],
+      default: 'AI_SUPERVISOR'
     }
   },
   {

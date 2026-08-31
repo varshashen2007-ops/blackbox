@@ -8,14 +8,14 @@ import { logAudit } from '../middleware/audit.js';
 const TRANSITION_RULES = {
   draft: {
     active: {
-      roles: ['investigator', 'supervisor'],
+      roles: ['investigator', 'supervisor', 'admin'],
       requireReason: false,
       auditAction: 'CASE_ACTIVATED'
     }
   },
   active: {
     under_review: {
-      roles: ['investigator', 'supervisor'],
+      roles: ['investigator', 'supervisor', 'admin'],
       requireReason: false,
       auditAction: 'CASE_SUBMITTED_FOR_REVIEW'
     }
@@ -48,7 +48,8 @@ const TRANSITION_RULES = {
 };
 
 /**
- * Validates and executes a case lifecycle transition
+ * Validates and executes a case lifecycle transition.
+ * When transitioning to 'under_review', automatically triggers the AI Supervisor review.
  */
 export async function executeCaseTransition({ caseId, targetStatus, reason, user, ipAddress = 'unknown' }) {
   const caseDoc = await Case.findById(caseId);
@@ -114,7 +115,39 @@ export async function executeCaseTransition({ caseId, targetStatus, reason, user
     ipAddress
   });
 
+  // AUTO-TRIGGER AI SUPERVISOR when transitioning to 'under_review'
+  if (targetStatus === 'under_review') {
+    triggerAiSupervisorAsync(caseDoc._id, user, ipAddress);
+  }
+
   return caseDoc;
+}
+
+/**
+ * Triggers AI Supervisor review asynchronously (non-blocking).
+ * Failures are handled gracefully — the case remains in under_review
+ * with REQUIRES_ATTENTION status and proper audit logging.
+ */
+function triggerAiSupervisorAsync(caseId, user, ipAddress) {
+  // Dynamic import to avoid circular dependencies
+  import('../services/aiSupervisor.service.js')
+    .then(async (aiSupervisorService) => {
+      try {
+        await aiSupervisorService.runAiSupervisorReview({
+          caseId,
+          user,
+          ipAddress,
+          actorType: 'AI_SUPERVISOR',
+          autoTriggered: true
+        });
+      } catch (err) {
+        console.error(`[AI Supervisor] Auto-triggered review failed for case ${caseId}:`, err.message);
+        // Failure handling is inside runAiSupervisorReview — it creates AI_REVIEW_FAILED audit events
+      }
+    })
+    .catch((importErr) => {
+      console.error('[AI Supervisor] Failed to import AI Supervisor service:', importErr.message);
+    });
 }
 
 export function getAllowedTransitions(currentStatus, userRole) {

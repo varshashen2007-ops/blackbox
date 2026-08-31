@@ -126,7 +126,7 @@
 
       {#if stats.recentReviews.length === 0}
         <div class="p-8 text-center text-text-muted text-sm font-mono">
-          No automated AI reviews recorded yet. Open a case and click "Run AI Supervisor Review" to evaluate evidence.
+          No automated AI reviews recorded yet. Cases are reviewed automatically upon submission (UNDER_REVIEW).
         </div>
       {:else}
         <div class="overflow-x-auto">

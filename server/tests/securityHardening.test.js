@@ -132,19 +132,15 @@ describe('BlackBox Zero-Trust Security & Injection Hardening Suite', () => {
     expect(res.body.error.code).toBe('FORBIDDEN');
   });
 
-  // 4. Google OAuth Privilege Escalation Prevention
-  it('Google OAuth: Public OIDC verification strictly produces Investigator L1 role and rejects role escalation', async () => {
+  // 4. Insecure Google Endpoint Removal Check
+  it('Google OAuth: Legacy insecure /api/v1/auth/google/verify endpoint is removed and inaccessible (404)', async () => {
     const res = await request(app).post('/api/v1/auth/google/verify').send({
-      email: 'new_google_user@blackbox.local',
-      name: 'Google User',
-      googleSubjectId: 'google_12345',
-      role: 'admin',
-      securityLevel: 3
+      email: 'attacker@blackbox.local',
+      name: 'Attacker',
+      role: 'admin'
     });
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.user.role).toBe('investigator');
-    expect(res.body.data.user.identityVerified).toBe(true);
+    expect(res.status).toBe(404);
   });
 
   // 5. Data Leak Prevention
