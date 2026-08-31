@@ -17,7 +17,16 @@ async function seedDevData() {
 
   try {
     console.log('[Seed] Connecting to development MongoDB...');
-    await mongoose.connect(config.mongodbUri);
+    try {
+      await mongoose.connect(config.mongodbUri, { serverSelectionTimeoutMS: 2000 });
+      console.log('[Seed] Connected to local MongoDB.');
+    } catch {
+      console.log('[Seed] Local MongoDB not found. Starting In-Memory MongoDB for validation...');
+      const { MongoMemoryServer } = await import('mongodb-memory-server');
+      const memServer = await MongoMemoryServer.create();
+      await mongoose.connect(memServer.getUri());
+      console.log('[Seed] In-Memory MongoDB connected.');
+    }
 
     console.log('[Seed] Clearing existing collections (Dev only)...');
     await Promise.all([
